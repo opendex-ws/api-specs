@@ -7341,10 +7341,12 @@ paths:
                     type: string
                 - name: sources
                   in: query
-                  description: Platforms to include (`FOMO`, `PUMPFUN`, `KOL`), comma separated.
+                  description: Platforms to include. Accepts `sources[]=FOMO`, repeated `sources=FOMO`, and CSV `sources=FOMO,KOL`.
                   required: false
                   schema:
-                    type: string
+                    type: array
+                    items:
+                        type: string
                 - name: chain
                   in: query
                   description: Chain to search. Defaults to `SOL`.
@@ -8731,7 +8733,7 @@ paths:
                     type: string
                 - name: lookup
                   in: query
-                  description: Repeat this parameter to look up exact tokens or pairs, as `lookup=CHAIN:ADDRESS`. Up to 50 are allowed, and it cannot be combined with `query`.
+                  description: Look up exact tokens or pairs. Accepts bracketed `lookup[]=CHAIN:ADDRESS`, repeated `lookup=CHAIN:ADDRESS`, and CSV `lookup=CHAIN:ADDRESS,CHAIN:ADDRESS` values. Up to 50 are allowed, and it cannot be combined with `query`.
                   required: false
                   schema:
                     type: array
@@ -9834,7 +9836,7 @@ paths:
                     type: array
                     items:
                         $ref: '#/components/schemas/TokenMultiLookupKey'
-                  description: Repeat this parameter to look up exact tokens or pairs, as `lookup=CHAIN:ADDRESS`. Up to 20 are allowed. Lookups that resolve to nothing are left out.
+                  description: Look up exact tokens or pairs. Accepts bracketed `lookup[]=CHAIN:ADDRESS`, repeated `lookup=CHAIN:ADDRESS`, and CSV `lookup=CHAIN:ADDRESS,CHAIN:ADDRESS` values. Up to 20 are allowed. Lookups that resolve to nothing are left out.
             responses:
                 '200':
                     description: Returns an object whose `tokens` array contains one full `TokenSnapshot` for each successfully resolved canonical token, in first-seen request order. Exact duplicates and aliases resolving to the same token produce one entry; unresolved lookups are omitted, so the array may be empty. Each snapshot's `isFavourited` reflects the authenticated requester's state, or is `false` without authentication.
@@ -17936,10 +17938,12 @@ paths:
                 - name: sources
                   in: query
                   description: |-
-                    Platforms to include (`FOMO`, `PUMPFUN`, `KOL`), comma separated. Omit it or leave it empty for the global ranking. Labeled-wallet identity is returned on every ranking row, not only when this filter is set.
+                    Platforms to include. Accepts `sources[]=FOMO`, repeated `sources=FOMO`, and CSV `sources=FOMO,KOL`. Omit it or leave it empty for the global ranking. Labeled-wallet identity is returned on every ranking row, not only when this filter is set.
                   required: false
                   schema:
-                    type: string
+                    type: array
+                    items:
+                        type: string
             responses:
                 '200':
                     description: A cursor-paginated trader ranking page containing up to 30 entries in `items`, with selected-period and baseline total statistics for each entry. Pagination metadata provides `nextCursor` and `prevCursor` when the corresponding page is available.
@@ -18981,21 +18985,21 @@ paths:
                         - 'null'
                 - name: actions
                   in: query
-                  description: Only return events with these actions, such as `TWEET` or `REPLY`. Omit it to include every action.
+                  description: Only return events with these actions. Accepts bracketed, repeated, and CSV `actions` values. Omit it to include every action.
                   required: false
                   schema:
-                    type:
-                        - string
-                        - 'null'
+                    type: array
+                    items:
+                        type: string
                 - name: tags
                   in: query
                   description: |-
-                    Only events whose author carries one of these tags.
+                    Only events whose author carries one of these tags. Accepts bracketed, repeated, and CSV `tags` values.
                   required: false
                   schema:
-                    type:
-                        - string
-                        - 'null'
+                    type: array
+                    items:
+                        type: string
                 - name: onlyCa
                   in: query
                   description: Whether to return only events that name a token contract address. Defaults to `false`.
@@ -19136,21 +19140,21 @@ paths:
                         - 'null'
                 - name: actions
                   in: query
-                  description: Only return events with these actions, such as `TWEET` or `REPLY`. Omit it to include every action.
+                  description: Only return events with these actions. Accepts bracketed, repeated, and CSV `actions` values. Omit it to include every action.
                   required: false
                   schema:
-                    type:
-                        - string
-                        - 'null'
+                    type: array
+                    items:
+                        type: string
                 - name: tags
                   in: query
                   description: |-
-                    Only events whose author carries one of these tags.
+                    Only events whose author carries one of these tags. Accepts bracketed, repeated, and CSV `tags` values.
                   required: false
                   schema:
-                    type:
-                        - string
-                        - 'null'
+                    type: array
+                    items:
+                        type: string
                 - name: onlyCa
                   in: query
                   description: Whether to return only events that name a token contract address. Defaults to `false`.
@@ -21468,22 +21472,28 @@ paths:
             parameters:
                 - name: labels
                   in: query
-                  description: Labels to include, comma separated. Omit for every label.
+                  description: Labels to include. Accepts `labels[]=name`, repeated `labels=name`, and CSV `labels=name,other`. Omit for every label.
                   required: false
                   schema:
-                    type: string
+                    type: array
+                    items:
+                        type: string
                 - name: sources
                   in: query
-                  description: Platforms to include, comma separated. Omit for every platform.
+                  description: Platforms to include. Accepts `sources[]=FOMO`, repeated `sources=FOMO`, and CSV `sources=FOMO,KOL`. Omit for every platform.
                   required: false
                   schema:
-                    type: string
+                    type: array
+                    items:
+                        type: string
                 - name: wallets
                   in: query
-                  description: Restrict to these wallets, comma separated.
+                  description: Restrict to these wallets. Accepts `wallets[]=address`, repeated `wallets=address`, and CSV `wallets=address,other`.
                   required: false
                   schema:
-                    type: string
+                    type: array
+                    items:
+                        type: string
                 - name: curated
                   in: query
                   description: |-
@@ -21564,10 +21574,12 @@ paths:
                     type: string
                 - name: sources
                   in: query
-                  description: Platforms to include (`FOMO`, `PUMPFUN`, `KOL`), comma separated.
+                  description: Platforms to include. Accepts `sources[]=FOMO`, repeated `sources=FOMO`, and CSV `sources=FOMO,KOL`.
                   required: false
                   schema:
-                    type: string
+                    type: array
+                    items:
+                        type: string
                 - name: chain
                   in: query
                   description: Chain to list. Defaults to `SOL`.
@@ -21678,10 +21690,12 @@ paths:
                     type: string
                 - name: sources
                   in: query
-                  description: Platforms to include (`FOMO`, `PUMPFUN`, `KOL`), comma separated.
+                  description: Platforms to include. Accepts `sources[]=FOMO`, repeated `sources=FOMO`, and CSV `sources=FOMO,KOL`.
                   required: false
                   schema:
-                    type: string
+                    type: array
+                    items:
+                        type: string
                 - name: chain
                   in: query
                   description: Chain to list. Defaults to `SOL`.
@@ -21729,10 +21743,12 @@ paths:
                     type: string
                 - name: sources
                   in: query
-                  description: Platforms to include (`FOMO`, `PUMPFUN`, `KOL`), comma separated.
+                  description: Platforms to include. Accepts `sources[]=FOMO`, repeated `sources=FOMO`, and CSV `sources=FOMO,KOL`.
                   required: false
                   schema:
-                    type: string
+                    type: array
+                    items:
+                        type: string
                 - name: chain
                   in: query
                   description: Chain to list. Defaults to `SOL`.
@@ -21992,19 +22008,23 @@ paths:
                 - name: labels
                   in: query
                   description: |-
-                    Labels to include, comma separated. A thesis matches when its author
+                    Labels to include. Accepts bracketed, repeated, and CSV `labels` values. A thesis matches when its author
                     carries any of them. Omit for every label.
                   required: false
                   schema:
-                    type: string
+                    type: array
+                    items:
+                        type: string
                 - name: sources
                   in: query
                   description: |-
-                    Sources to include (`FOMO`, `PUMPFUN`), comma separated. Omit for every
+                    Sources to include. Accepts bracketed, repeated, and CSV `sources` values. Omit for every
                     source. `source` is accepted as an alias.
                   required: false
                   schema:
-                    type: string
+                    type: array
+                    items:
+                        type: string
                 - name: minMarketcapUsd
                   in: query
                   description: Inclusive floor on market cap in USD at post time.
@@ -22069,7 +22089,7 @@ paths:
                     type: array
                     items:
                         type: string
-                  description: Only return calls from this source. A restriction applies only when exactly one ID is given; several IDs filter nothing.
+                  description: Only return calls from this source. Accepts bracketed `callerIds[]=one`, repeated `callerIds=one`, and CSV `callerIds=one,two` values. A restriction applies only when exactly one ID is given; several IDs filter nothing.
                 - name: cursor
                   in: query
                   required: false
@@ -22135,7 +22155,7 @@ paths:
                             - SOL
                   style: form
                   explode: false
-                  description: Only return calls on these chains. Omit it to include every chain.
+                  description: Only return calls on these chains. Accepts bracketed `chains[]=SOL`, repeated `chains=SOL`, and CSV `chains=SOL,ETH` values. Omit it to include every chain.
                 - name: swapType
                   in: query
                   required: false
@@ -22343,7 +22363,7 @@ paths:
                     type: array
                     items:
                         type: string
-                  description: Only return calls from this source. A restriction applies only when exactly one ID is given; several IDs filter nothing.
+                  description: Only return calls from this source. Accepts bracketed `callerIds[]=one`, repeated `callerIds=one`, and CSV `callerIds=one,two` values. A restriction applies only when exactly one ID is given; several IDs filter nothing.
                 - name: cursor
                   in: query
                   required: false
@@ -22409,7 +22429,7 @@ paths:
                             - SOL
                   style: form
                   explode: false
-                  description: Only return calls on these chains. Omit it to include every chain.
+                  description: Only return calls on these chains. Accepts bracketed `chains[]=SOL`, repeated `chains=SOL`, and CSV `chains=SOL,ETH` values. Omit it to include every chain.
                 - name: swapType
                   in: query
                   required: false
@@ -22574,7 +22594,7 @@ paths:
                     type: array
                     items:
                         type: string
-                  description: Only return calls from this source. A restriction applies only when exactly one ID is given; several IDs filter nothing.
+                  description: Only return calls from this source. Accepts bracketed `callerIds[]=one`, repeated `callerIds=one`, and CSV `callerIds=one,two` values. A restriction applies only when exactly one ID is given; several IDs filter nothing.
                 - name: cursor
                   in: query
                   required: false
@@ -22640,7 +22660,7 @@ paths:
                             - SOL
                   style: form
                   explode: false
-                  description: Only return calls on these chains. Omit it to include every chain.
+                  description: Only return calls on these chains. Accepts bracketed `chains[]=SOL`, repeated `chains=SOL`, and CSV `chains=SOL,ETH` values. Omit it to include every chain.
                 - name: swapType
                   in: query
                   required: false
@@ -22813,7 +22833,7 @@ paths:
                     type: array
                     items:
                         type: string
-                  description: Only return calls from this source. A restriction applies only when exactly one ID is given; several IDs filter nothing.
+                  description: Only return calls from this source. Accepts bracketed `callerIds[]=one`, repeated `callerIds=one`, and CSV `callerIds=one,two` values. A restriction applies only when exactly one ID is given; several IDs filter nothing.
                 - name: cursor
                   in: query
                   required: false
@@ -22879,7 +22899,7 @@ paths:
                             - SOL
                   style: form
                   explode: false
-                  description: Only return calls on these chains. Omit it to include every chain.
+                  description: Only return calls on these chains. Accepts bracketed `chains[]=SOL`, repeated `chains=SOL`, and CSV `chains=SOL,ETH` values. Omit it to include every chain.
                 - name: swapType
                   in: query
                   required: false
@@ -23051,7 +23071,7 @@ paths:
                     type: array
                     items:
                         type: string
-                  description: Only return calls from this source. A restriction applies only when exactly one ID is given; several IDs filter nothing.
+                  description: Only return calls from this source. Accepts bracketed `callerIds[]=one`, repeated `callerIds=one`, and CSV `callerIds=one,two` values. A restriction applies only when exactly one ID is given; several IDs filter nothing.
                 - name: cursor
                   in: query
                   required: false
@@ -23117,7 +23137,7 @@ paths:
                             - SOL
                   style: form
                   explode: false
-                  description: Only return calls on these chains. Omit it to include every chain.
+                  description: Only return calls on these chains. Accepts bracketed `chains[]=SOL`, repeated `chains=SOL`, and CSV `chains=SOL,ETH` values. Omit it to include every chain.
                 - name: swapType
                   in: query
                   required: false
@@ -28799,7 +28819,7 @@ paths:
                             - SOL
                   style: form
                   explode: false
-                  description: Only return calls on these chains. Omit it to include every chain.
+                  description: Only return calls on these chains. Accepts bracketed `chains[]=SOL`, repeated `chains=SOL`, and CSV `chains=SOL,ETH` values. Omit it to include every chain.
                 - name: swapType
                   in: query
                   required: false
