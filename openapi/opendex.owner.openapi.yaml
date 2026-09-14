@@ -1,0 +1,2502 @@
+openapi: 3.1.0
+info:
+  title: OpenDEX B2B Owner API
+  version: 1.1.0
+  summary: Machine-facing, read-mostly API for B2B organization owners to introspect users, trades, analytics, venue fees, and whitelabel endpoint configuration.
+  description: |
+    The **Owner API** is a machine-facing HTTP API for owners of an OpenDEX B2B
+    organization. It is served from `https://portal-api.opendex.ws/v1` under the
+    `/owner` path prefix and is completely separate from:
+
+    - The credits-metered **Platform / Proxy API** (`odx_b2b_...` keys), which
+      your end users' trading clients call.
+    - The cookie + CSRF authenticated **Portal control-plane API**, which the
+      portal web app uses on behalf of a logged-in human.
+
+    ## Authentication
+
+    Every authenticated request must carry an Owner API key in the
+    `X-API-Key` header:
+
+    ```
+    X-API-Key: odx_owner_3xampleKeyGoesHere00000000000000
+    ```
+
+    Owner API keys always begin with the `odx_owner_` prefix. Mint one from the
+    portal under **API Keys / Owner API**. The raw key is shown
+    exactly once at creation time; only a hash and a display prefix are stored
+    thereafter.
+
+    **The organization is resolved exclusively from the API key.** There is no
+    org id, slug, or subdomain in the request path or body. Every authenticated
+    endpoint below operates implicitly on "your organization", and it is not
+    possible to pass an org identifier to read or write a different
+    organization's data. This holds even for routes on other OpenDEX APIs
+    that would otherwise take an `orgID` path segment.
+
+    ## Scopes
+
+    Owner API keys carry one or more scopes. Each operation below documents its
+    required scope via `x-scope`. A key missing the required scope receives
+    `403 forbidden`; a `404` is never used to hide a scope failure.
+
+    | Scope              | Grants                                                          |
+    |--------------------|------------------------------------------------------------------|
+    | `users:read`       | List and get business users (and their wallets/slots)           |
+    | `trades:read`       | List and get trades, including swaps and sell targets           |
+    | `analytics:read`   | Time-series stats, aggregate reports, and venue fee summaries    |
+    | `endpoints:read`   | Read whitelabel endpoint / custom domain configuration           |
+    | `endpoints:write`  | Create, verify, enable/disable, and reconfigure custom domains   |
+
+    When a key is minted without an explicit scope list, it defaults to the
+    three read-only analytics scopes: **`users:read`, `trades:read`, and
+    `analytics:read`**. `endpoints:read` and `endpoints:write` are never granted
+    by default and must be selected explicitly, since they touch CORS and
+    routing configuration for your public-facing endpoints.
+
+    A single key may carry any non-empty subset of the five scopes; scopes are
+    otherwise independent (e.g. a key can have `endpoints:write` without
+    `endpoints:read`; read endpoints still require `endpoints:read`
+    specifically, since read and write are enforced as separate scopes).
+
+    ## Organization resolution & isolation
+
+    Because the org is bound to the key at mint time, there is no
+    cross-organization enumeration surface: every list and get endpoint is
+    implicitly filtered to your org, and detail lookups (`GET
+    /owner/users/{userID}`, `GET /owner/trades/{tradeID}`, custom domain
+    routes) return `404 not_found`, never `403`, when the requested id
+    belongs to another organization or does not exist. This is a deliberate
+    anti-enumeration measure: a 403 would leak the existence of the resource.
+
+    ## Pagination
+
+    List endpoints (`/owner/users`, `/owner/trades`) use page-based pagination,
+    not cursors:
+
+    - `page`: 1-indexed page number, default `1`.
+    - `page_size`: rows per page, default `50`, maximum `200`. Values above
+      200 are clamped to 200, not rejected.
+
+    Paginated responses share the shape `{ rows, total, page, page_size }`,
+    where `total` is the total row count matching the filters (not just the
+    current page) so clients can compute the last page.
+
+    ## Errors
+
+    All error responses use a single JSON envelope:
+
+    ```json
+    { "error": { "code": "forbidden", "message": "API key missing required scope: trades:read" } }
+    ```
+
+    `error.code` is a short, stable, machine-readable token (e.g.
+    `unauthorized`, `forbidden`, `not_found`, `rate_limited`,
+    `invalid_request`). `error.message` is a human-readable detail string that
+    may change between releases; do not pattern-match on it.
+
+    ## Rate limits
+
+    Each Owner API key is limited to approximately **120 requests per minute**,
+    enforced with a fixed-window counter keyed by key id. Requests over the
+    limit receive `429` with `error.code = "rate_limited"`. The limit applies
+    per key, not per organization, so an org with multiple Owner API keys gets
+    a separate budget per key. There is currently no `Retry-After` header;
+    clients should back off and retry after a few seconds.
+
+    ## Chains
+
+    `chain_id` values used throughout this API:
+
+    | chain_id | Chain     |
+    |----------|-----------|
+    | `900`    | Solana    |
+    | `1`      | Ethereum  |
+    | `8453`   | Base      |
+    | `56`     | BNB Chain |
+
+    Most trading activity and the richest analytics breakdowns are on Solana
+    (`900`); EVM chains are supported but some per-chain series may be sparse
+    or zero for organizations that are Solana-only.
+
+    ## Consistency
+
+    Reads may be served from a read replica and can therefore lag primary
+    writes by a short, bounded interval (typically well under a second, but
+    not guaranteed). Do not assume read-your-writes consistency immediately
+    after a mutation performed elsewhere (e.g. a trade that just executed, or a
+    domain you just verified); retry a read that appears stale rather than
+    treating it as an error.
+
+    ## Decimal and atomic amounts
+
+    Any field described as a **decimal string** (e.g. `trade_amount_usd`,
+    `org_fee_sol`) is a base-10 numeric literal encoded as a JSON string, never
+    a JSON number. This avoids floating point precision loss for
+    money-shaped values. Fields described as **atomic** (e.g.
+    `actual_builder_fee_atomic`) are additionally expressed in the smallest
+    unit of the relevant rail token (e.g. lamports for SOL, or the smallest
+    unit of the settlement token for Polymarket/Hyperliquid payouts); check
+    the surrounding schema description for the specific denomination.
+servers:
+  - url: https://portal-api.opendex.ws/v1
+    description: Production portal API
+tags:
+  - name: Meta
+    description: Owner API key introspection.
+  - name: Users
+    description: Business users belonging to your organization, plus their linked trading wallets and slots.
+  - name: Trades
+    description: Trades executed by your organization's users, including swap and sell-target detail.
+  - name: Analytics
+    description: Time-series stats and aggregate reporting across users, trades, volume, and fees.
+  - name: Fees
+    description: Venue-specific collected fee summaries for Solana, Polymarket, and Hyperliquid.
+  - name: Endpoints
+    description: Machine-facing endpoint discovery and whitelabel custom domain management (CORS origins, custom hostnames, origin lock).
+  - name: Spec
+    description: Public, unauthenticated contract discovery documents for this API.
+security:
+  - OwnerApiKey: []
+paths:
+  /owner/openapi.yaml:
+    get:
+      operationId: ownerGetOpenAPIYaml
+      tags: [Spec]
+      security: []
+      summary: Download this OpenAPI document as YAML
+      description: |
+        Returns this same OpenAPI 3.1 document, serialized as YAML. Public and
+        unauthenticated; no `X-API-Key` required. Useful for feeding directly
+        into OpenAPI-aware tooling (client generators, API gateways, linters)
+        without needing to authenticate first.
+      responses:
+        '200':
+          description: The OpenAPI 3.1 document, as YAML.
+          content:
+            application/yaml:
+              schema:
+                type: string
+              example: |
+                openapi: 3.1.0
+                info:
+                  title: OpenDEX B2B Owner API
+                  version: 1.1.0
+                ...
+  /owner/openapi.json:
+    get:
+      operationId: ownerGetOpenAPIJson
+      tags: [Spec]
+      security: []
+      summary: Download this OpenAPI document as JSON
+      description: |
+        Returns the same OpenAPI 3.1 document as `/owner/openapi.yaml`, but
+        serialized as JSON. Public and unauthenticated. The JSON is generated
+        once per process from the canonical YAML source and cached, so both
+        forms are always in sync.
+      responses:
+        '200':
+          description: The OpenAPI 3.1 document, as JSON.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: The full OpenAPI 3.1 document tree, equivalent to `/owner/openapi.yaml` parsed as JSON.
+  /owner/llms.txt:
+    get:
+      operationId: ownerGetLlmsTxt
+      tags: [Spec]
+      security: []
+      summary: Download the llms.txt companion guide
+      description: |
+        Returns a concise, LLM-friendly plain-text summary of this API
+        (auth, scopes, every endpoint, and key operational notes) in the
+        [llms.txt](https://llmstxt.org/) convention. Intended for coding
+        agents and LLM tools that want a compact orientation document instead
+        of parsing the full OpenAPI contract. Public and unauthenticated.
+      responses:
+        '200':
+          description: Plain-text llms.txt document.
+          content:
+            text/plain:
+              schema:
+                type: string
+  /owner/me:
+    get:
+      operationId: ownerGetMe
+      tags: [Meta]
+      x-scope: none
+      summary: Introspect the authenticated Owner API key
+      description: |
+        Returns metadata about the Owner API key used to authenticate this
+        request: which organization it is bound to, its scopes, display
+        prefix, and expiry. Requires a valid `X-API-Key` but no specific
+        scope; any active Owner API key may call this endpoint, which makes
+        it a convenient way to verify a key is valid and see what it can do
+        before calling anything else.
+      responses:
+        '200':
+          description: Key and organization metadata for the authenticated key.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/OwnerMe'
+              example:
+                organization_id: 7b2e6a3e-6d1a-4b8a-9c0e-1a2b3c4d5e6f
+                key_id: 9a1c2e3f-4b5d-6e7f-8a9b-0c1d2e3f4a5b
+                key_prefix: odx_owner_AbCdEfGh
+                name: Analytics dashboard key
+                scopes: [users:read, trades:read, analytics:read]
+                expires_at: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/users:
+    get:
+      operationId: ownerListUsers
+      tags: [Users]
+      x-scope: users:read
+      summary: List business users in your organization
+      description: |
+        Returns a page of business users belonging to your organization,
+        ordered newest-first. Business users are the end-users who have
+        connected a trading wallet under your org (via a whitelabel endpoint,
+        Telegram bot, or affiliate link), not portal team members.
+
+        `q` matches a case-insensitive prefix against `username` or
+        `remote_user`; `wallet` matches an exact linked wallet address on any
+        chain. Both filters are optional and may be combined; omitting both
+        returns every user in the org, most-recently-created first.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: q
+          in: query
+          description: Case-insensitive prefix match against `username` or `remote_user`.
+          schema: { type: string }
+          example: alice
+        - name: wallet
+          in: query
+          description: Exact match against any linked wallet address (any supported chain) for the user.
+          schema: { type: string }
+          example: "7xKXtg2CW3vgFkFZQpVaE9xnkTFHxaZLYNqZmqZzGm3g"
+      responses:
+        '200':
+          description: A page of business users.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/BusinessUserList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/users/{userID}:
+    get:
+      operationId: ownerGetUser
+      tags: [Users]
+      x-scope: users:read
+      summary: Get a business user, with wallets and slots
+      description: |
+        Returns full detail for one business user in your organization,
+        including every trading wallet and every slot (per-chain trading
+        sub-account) linked to that user. Returns `404 not_found`, not
+        `403`, if the id does not exist or belongs to another organization,
+        so this endpoint cannot be used to enumerate ids across orgs.
+      parameters:
+        - $ref: '#/components/parameters/UserID'
+      responses:
+        '200':
+          description: Business user detail.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/BusinessUserDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/trades:
+    get:
+      operationId: ownerListTrades
+      tags: [Trades]
+      x-scope: trades:read
+      summary: List trades in your organization
+      description: |
+        Returns a page of trades executed by your organization's users,
+        newest-first. A "trade" is one position lifecycle (open through
+        close) on one token/slot; each trade may contain multiple underlying
+        on-chain swaps (see `GET /owner/trades/{tradeID}` for the swap
+        breakdown).
+
+        **Time filtering:** `range` takes precedence over `from`/`to` when
+        both are supplied. `range` is one of `today`, `7d`, `14d`, or `30d`
+        and computes a rolling UTC window ending now (`today` means
+        midnight-UTC through now). `from`/`to` are explicit RFC 3339
+        timestamps for a custom window when `range` is not what you want.
+        Supplying neither returns trades across all time.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/ChainIDFilter'
+        - name: status
+          in: query
+          description: Filter to trades with this exact `trade_status` value (e.g. `OPEN`, `CLOSED`, `FAILED`).
+          schema: { type: string }
+          example: CLOSED
+        - name: user_wallet
+          in: query
+          description: Filter to trades whose `user_wallet` exactly matches this address.
+          schema: { type: string }
+          example: "7xKXtg2CW3vgFkFZQpVaE9xnkTFHxaZLYNqZmqZzGm3g"
+        - name: range
+          in: query
+          description: Rolling UTC time window. Takes precedence over `from`/`to` when both are present.
+          schema:
+            type: string
+            enum: [today, 7d, 14d, 30d]
+          example: 7d
+        - name: from
+          in: query
+          description: Inclusive RFC 3339 start of a custom time window. Ignored if `range` is set.
+          schema: { type: string, format: date-time }
+          example: "2026-08-01T00:00:00Z"
+        - name: to
+          in: query
+          description: Exclusive RFC 3339 end of a custom time window. Ignored if `range` is set.
+          schema: { type: string, format: date-time }
+          example: "2026-09-01T00:00:00Z"
+      responses:
+        '200':
+          description: A page of trades.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/TradeList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/trades/{tradeID}:
+    get:
+      operationId: ownerGetTrade
+      tags: [Trades]
+      x-scope: trades:read
+      summary: Get a trade, with swaps and sell targets
+      description: |
+        Returns full detail for one trade: the trade row itself, the signal
+        that originated it (manual, autobuy, copy-trade, or social-triggered),
+        the associated position configuration (if any), every underlying
+        on-chain swap, and every configured sell target. Returns
+        `404 not_found`, not `403`, for ids that don't exist or belong to
+        another organization.
+      parameters:
+        - name: tradeID
+          in: path
+          required: true
+          description: Numeric trade id.
+          schema: { type: integer, format: int64 }
+          example: 4815162342
+      responses:
+        '200':
+          description: Trade detail.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/TradeDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/analytics/stats:
+    get:
+      operationId: ownerGetAnalyticsStats
+      tags: [Analytics]
+      x-scope: analytics:read
+      summary: Time-series stats for a rolling window
+      description: |
+        Returns daily time-series data for your organization over a rolling
+        window: new user signups, trades broken down by origin, average buy
+        size per chain, active wallets per chain, slots created per chain,
+        total USD trade volume, and collected fees broken down by fee type.
+
+        Defaults to the trailing **14 days** when `range` is omitted. Each
+        series is independently collected; if one series' aggregate query
+        fails, it is omitted from the response and its name appears in
+        `warnings` instead of failing the whole request.
+      parameters:
+        - name: range
+          in: query
+          description: Rolling UTC window to aggregate over. Defaults to `14d`.
+          schema:
+            type: string
+            enum: [today, 7d, 14d, 30d]
+            default: 14d
+          example: 14d
+      responses:
+        '200':
+          description: Time-series stats for the requested window.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/StatsResp'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/analytics/report:
+    get:
+      operationId: ownerGetAnalyticsReport
+      tags: [Analytics]
+      x-scope: analytics:read
+      summary: Aggregate report for a rolling window
+      description: |
+        Returns a single aggregated snapshot for your organization over a
+        rolling window: trade-count breakdowns, fees collected by fee type
+        and chain, trade volume (all / buy / sell) by chain, average daily
+        volume by chain, average buy size, user growth, and total USD parked
+        in open slots by chain.
+
+        Defaults to **today** (midnight-UTC through now) when `range` is
+        omitted; this is intentionally a shorter default window than
+        `/owner/analytics/stats`, since the report is meant for "how did
+        today/this-week look" snapshots rather than long trend lines.
+      parameters:
+        - name: range
+          in: query
+          description: Rolling UTC window to aggregate over. Defaults to `today`.
+          schema:
+            type: string
+            enum: [today, 7d, 14d, 30d]
+            default: today
+          example: today
+      responses:
+        '200':
+          description: Aggregate report for the requested window.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/ReportResp'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/fees/solana:
+    get:
+      operationId: ownerGetSolanaFees
+      tags: [Fees]
+      x-scope: analytics:read
+      summary: Solana organization fee summary
+      description: |
+        Returns your organization's cumulative collected `ORG`-type dynamic
+        fee on Solana (`chain_id = 900`), across all time. Amounts are given
+        in both lamports (exact, as a decimal string) and SOL (a convenience
+        floating-point-formatted decimal string; use `org_fee_lamports` if
+        you need exact precision).
+      responses:
+        '200':
+          description: Solana organization fee totals.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/SolanaFees'
+              example:
+                organization_id: 7b2e6a3e-6d1a-4b8a-9c0e-1a2b3c4d5e6f
+                org_fee_lamports: "48213500123"
+                org_fee_sol: "48.213500123"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/fees/polymarket:
+    get:
+      operationId: ownerGetPolymarketFees
+      tags: [Fees]
+      x-scope: analytics:read
+      summary: Polymarket builder fee summary
+      description: |
+        Returns your organization's Polymarket builder-fee earnings, payout
+        balances, attribution-pipeline health, and payout configuration.
+        Amounts are atomic (smallest unit of the settlement/rail token) and
+        given as decimal strings.
+
+        `affiliate_payout` is always `null` for Owner API keys; affiliate
+        payout detail is only available to the affiliate's own portal
+        session, since it identifies a specific portal user's payout wallet,
+        not organization-level data.
+
+        Filtering by `from`/`to` narrows the window basis-time-window is
+        applied to the underlying ledger; omitting both returns all-time
+        totals. `builder_code_id` optionally scopes to one specific
+        Polymarket builder profile UUID your org has selected, instead of
+        all builder profiles combined.
+      parameters:
+        - name: from
+          in: query
+          description: Inclusive RFC 3339 start of the fee ledger window. Omit for all-time.
+          schema: { type: string, format: date-time }
+          example: "2026-08-01T00:00:00Z"
+        - name: to
+          in: query
+          description: Exclusive RFC 3339 end of the fee ledger window. Omit for all-time.
+          schema: { type: string, format: date-time }
+          example: "2026-09-01T00:00:00Z"
+        - name: builder_code_id
+          in: query
+          description: Restrict to one Polymarket builder profile UUID. Omit to aggregate across every builder profile your org has used.
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Polymarket fee summary.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/PolymarketFees'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/fees/hyperliquid:
+    get:
+      operationId: ownerGetHyperliquidFees
+      tags: [Fees]
+      x-scope: analytics:read
+      summary: Hyperliquid builder fee summary
+      description: |
+        Returns your organization's Hyperliquid builder-fee earnings, order
+        submission/fill funnel counts, payout balances, and payout
+        configuration. Shares the same `from`/`to`/`builder_code_id`
+        filtering semantics as `GET /owner/fees/polymarket`, but
+        `builder_code_id` here refers to a Hyperliquid builder profile UUID.
+
+        `volume_known` indicates whether `volume_atomic` reflects a fully
+        reconciled figure for the window; some historical windows may report
+        `volume_known: false` while backfill is still catching up, in which
+        case treat `volume_atomic` as a lower bound.
+      parameters:
+        - name: from
+          in: query
+          description: Inclusive RFC 3339 start of the fee ledger window. Omit for all-time.
+          schema: { type: string, format: date-time }
+          example: "2026-08-01T00:00:00Z"
+        - name: to
+          in: query
+          description: Exclusive RFC 3339 end of the fee ledger window. Omit for all-time.
+          schema: { type: string, format: date-time }
+          example: "2026-09-01T00:00:00Z"
+        - name: builder_code_id
+          in: query
+          description: Restrict to one Hyperliquid builder profile UUID. Omit to aggregate across every builder profile your org has used.
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Hyperliquid fee summary.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/HyperliquidFees'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/endpoints:
+    get:
+      operationId: ownerGetEndpoints
+      tags: [Endpoints]
+      x-scope: endpoints:read
+      summary: Machine-facing endpoint discovery overview
+      description: |
+        Returns a single overview document describing every machine-facing
+        base URL relevant to your organization: the credits-metered Platform
+        (proxy) API your end-users' trading clients call, this Owner API's
+        own base URL and contract-discovery links, and your whitelabel
+        endpoint configuration (default production/development domains plus
+        any custom domains you have configured). This is a convenient
+        single-call bootstrap for a dashboard or ops tool that needs to know
+        "where do I point things" for one organization.
+      responses:
+        '200':
+          description: Endpoint overview for your organization.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/EndpointsOverview'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/endpoints/domains:
+    get:
+      operationId: ownerListWhitelabelDomains
+      tags: [Endpoints]
+      x-scope: endpoints:read
+      summary: List whitelabel domains
+      description: |
+        Returns every whitelabel domain configured for your organization:
+        the auto-provisioned default production domain
+        (`<org>.wl.opendex.ws`), the always-open default development domain
+        (`<org>.wl-dev.opendex.ws`), and any customer-owned custom domains
+        you have registered. Also reports your plan's custom-domain count
+        limit and whether any custom domain currently has origin-lock
+        configured.
+      responses:
+        '200':
+          description: Whitelabel domains for your organization.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/WhitelabelDomainList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/endpoints/domains/{domain}/origins:
+    patch:
+      operationId: ownerUpdateWhitelabelDomainOrigins
+      tags: [Endpoints]
+      x-scope: endpoints:write
+      summary: Update a domain's allowed CORS origins
+      description: |
+        Replaces the full set of browser CORS origins allowed to call your
+        API through this whitelabel domain. This is a full replace, not a
+        merge; send the complete desired list every time.
+
+        **Validation rules for each origin:**
+        - At most 50 origins total, each at most 512 characters.
+        - Must be an absolute `http://` or `https://` origin; no path,
+          query string, or userinfo component (`https://app.example.com`,
+          not `https://app.example.com/` or `https://user@app.example.com`).
+        - Wildcards are allowed only as the leftmost label of a subdomain
+          with a concrete parent domain, e.g. `https://*.example.com`. A
+          bare wildcard scheme like `https://*` is rejected outright, and a
+          wildcard anywhere other than the leftmost label
+          (`https://foo.*.com`) is rejected.
+
+        This endpoint only applies to `custom_prod` and `prod` domain kinds.
+        **`dev` domains are not editable via this endpoint** and always
+        behave as fully open (`http://*`, `https://*`); calling this on a
+        dev domain returns `404 domain_not_found`.
+
+        Changes propagate to the edge proxy asynchronously; allow up to
+        **30 seconds** worst-case for the new CORS configuration to take
+        effect globally.
+      parameters:
+        - $ref: '#/components/parameters/Domain'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              description: See linked schema.
+              $ref: '#/components/schemas/UpdateOriginsRequest'
+            example:
+              allowed_origins:
+                - "https://app.example.com"
+                - "https://*.staging.example.com"
+      responses:
+        '200':
+          description: Updated domain.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [domain]
+                properties:
+                  domain:
+                    description: See linked schema.
+                    $ref: '#/components/schemas/WhitelabelDomain'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/endpoints/domains/custom:
+    post:
+      operationId: ownerCreateCustomWhitelabelDomain
+      tags: [Endpoints]
+      x-scope: endpoints:write
+      summary: Register a custom whitelabel domain
+      description: |
+        Registers a customer-owned hostname (e.g. `api.yourbrand.com`) as a
+        new custom whitelabel domain and provisions it as a Cloudflare for
+        SaaS custom hostname. The domain starts in the `pending` lifecycle
+        state.
+
+        **Custom domain lifecycle:**
+        1. `pending`: domain registered, DNS not yet configured by you.
+        2. You add the returned `cname_target` as a CNAME record and any
+           `verification_records` as TXT/CNAME records at your DNS provider.
+        3. Call `POST /owner/endpoints/domains/{domain}/verify` to poll
+           Cloudflare and progress the domain once DNS + TLS are confirmed.
+        4. `active`: the domain is fully live. `ready` becomes `true` only
+           once the domain is `active` **and** has a non-empty
+           `allowed_origins` CORS list (dev domains are always considered
+           ready).
+
+        The number of custom domains an organization may register is capped
+        per subscription plan (`custom_domain_limit` in the endpoints
+        overview; `null` means unlimited). Exceeding the cap returns
+        `409 custom_domain_limit`. The domain itself may not be one of the
+        reserved OpenDEX suffixes (`*.opendex.ws`, `*.wl.opendex.ws`,
+        `*.wl-dev.opendex.ws`) and must already be globally unique across all
+        organizations; a domain already registered by anyone returns
+        `409 domain_taken`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              description: See linked schema.
+              $ref: '#/components/schemas/CreateCustomDomainRequest'
+            example:
+              domain: api.yourbrand.com
+      responses:
+        '201':
+          description: Custom domain created and pending DNS verification.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [domain]
+                properties:
+                  domain:
+                    description: See linked schema.
+                    $ref: '#/components/schemas/WhitelabelDomain'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Domain limit reached, or the domain is already registered by any organization.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/endpoints/domains/{domain}:
+    delete:
+      operationId: ownerDeleteCustomWhitelabelDomain
+      tags: [Endpoints]
+      x-scope: endpoints:write
+      summary: Delete a custom whitelabel domain
+      description: |
+        Permanently removes a custom domain: deletes the underlying
+        Cloudflare for SaaS custom hostname (if provisioned) and deletes the
+        domain row. Only `custom_prod` domains may be deleted through this
+        endpoint; the auto-provisioned `prod` and `dev` default domains
+        cannot be deleted (they will not match and this returns
+        `404 domain_not_found`).
+      parameters:
+        - $ref: '#/components/parameters/Domain'
+      responses:
+        '200':
+          description: Domain deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [domain, deleted]
+                properties:
+                  domain:
+                    type: string
+                    description: The hostname that was deleted.
+                  deleted:
+                    type: boolean
+                    description: Always `true` on a successful response.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/endpoints/domains/{domain}/verify:
+    post:
+      operationId: ownerVerifyCustomWhitelabelDomain
+      tags: [Endpoints]
+      x-scope: endpoints:write
+      summary: Poll DNS/TLS verification for a custom domain
+      description: |
+        Synchronously polls Cloudflare for the current DNS/TLS state of a
+        `pending` custom domain and, once SSL has been issued, flips it to
+        `active`. Safe to call repeatedly while waiting on customer-side DNS
+        propagation; each call re-checks the live Cloudflare state rather
+        than relying on a cached value.
+
+        `reachable` reflects whether Cloudflare currently reports the
+        hostname's SSL certificate as active. `origin_lock_verified` is
+        always `false` from this endpoint; origin-lock verification happens
+        as a side effect of `PATCH /owner/endpoints/domains/{domain}/origin-lock`
+        with `enforce: true`, not here.
+      parameters:
+        - $ref: '#/components/parameters/Domain'
+      responses:
+        '200':
+          description: Current verification state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reachable, origin_lock_verified, domain]
+                properties:
+                  reachable:
+                    type: boolean
+                    description: Whether Cloudflare currently reports this hostname's SSL certificate as active.
+                  origin_lock_verified:
+                    type: boolean
+                    description: Always `false` here; origin-lock verification is performed by the origin-lock enforcement endpoint instead.
+                  domain:
+                    description: See linked schema.
+                    $ref: '#/components/schemas/WhitelabelDomain'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          description: Cloudflare could not be reached or returned an unexpected response while polling hostname status.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Cloudflare for SaaS is not configured for this environment.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/Error'
+  /owner/endpoints/domains/{domain}/enable:
+    post:
+      operationId: ownerEnableWhitelabelDomain
+      tags: [Endpoints]
+      x-scope: endpoints:write
+      summary: Enable a whitelabel domain
+      description: |
+        Sets a `dev` or `custom_prod` domain's status to `active` so the edge
+        proxy resumes routing traffic for it. This does not affect
+        `allowed_origins`, `enforce_origin_lock`, or DNS/TLS state; it is
+        purely a routing on/off switch. Changes propagate to the proxy
+        asynchronously; allow up to 30 seconds worst-case.
+      parameters:
+        - $ref: '#/components/parameters/Domain'
+      responses:
+        '200':
+          description: Domain enabled.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [domain]
+                properties:
+                  domain:
+                    description: See linked schema.
+                    $ref: '#/components/schemas/WhitelabelDomain'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/endpoints/domains/{domain}/disable:
+    post:
+      operationId: ownerDisableWhitelabelDomain
+      tags: [Endpoints]
+      x-scope: endpoints:write
+      summary: Disable a whitelabel domain
+      description: |
+        Sets a `dev` or `custom_prod` domain's status to `disabled` so the
+        edge proxy stops routing traffic for it, without deleting its
+        configuration. Useful for temporarily taking a whitelabel endpoint
+        offline (e.g. during a security incident) without losing its CORS
+        origins or Cloudflare hostname. Re-enable with the corresponding
+        `enable` endpoint. Changes propagate to the proxy asynchronously;
+        allow up to 30 seconds worst-case.
+      parameters:
+        - $ref: '#/components/parameters/Domain'
+      responses:
+        '200':
+          description: Domain disabled.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [domain]
+                properties:
+                  domain:
+                    description: See linked schema.
+                    $ref: '#/components/schemas/WhitelabelDomain'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/endpoints/domains/{domain}/origin-lock:
+    patch:
+      operationId: ownerSetDomainOriginLock
+      tags: [Endpoints]
+      x-scope: endpoints:write
+      summary: Enable or disable origin-lock enforcement for a domain
+      description: |
+        Toggles enforcement of the per-domain origin-lock secret: when
+        enforced, the edge proxy only accepts requests for this hostname that
+        carry a valid `X-OpenDEX-Origin-Token` header, which is intended to
+        be injected by your own reverse proxy / CDN (e.g. via a Cloudflare
+        Transform Rule) rather than by end-user browsers, so a request that
+        bypasses your edge cannot spoof your whitelabel hostname.
+
+        **Enabling (`enforce: true`) is lockout-safe by design:** it requires
+        that a secret has already been generated for this domain (via
+        `POST /owner/endpoints/domains/{domain}/origin-lock/rotate`) *and*
+        that a live probe confirms your edge is already correctly injecting
+        a valid token for this hostname. If either check fails, the request
+        is rejected with `409 origin_lock_unconfigured` or
+        `409 origin_lock_unverified` and enforcement is **not** enabled;
+        this prevents you from locking yourself out by enforcing a token
+        your own edge isn't sending yet. Disabling (`enforce: false`) has no
+        preconditions.
+      parameters:
+        - $ref: '#/components/parameters/Domain'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              description: See linked schema.
+              $ref: '#/components/schemas/OriginLockRequest'
+            example:
+              enforce: true
+      responses:
+        '200':
+          description: Updated domain.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [domain]
+                properties:
+                  domain:
+                    description: See linked schema.
+                    $ref: '#/components/schemas/WhitelabelDomain'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Origin lock has no configured secret yet, or the live probe could not verify your edge is injecting a valid token.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /owner/endpoints/domains/{domain}/origin-lock/rotate:
+    post:
+      operationId: ownerRotateDomainOriginLockToken
+      tags: [Endpoints]
+      x-scope: endpoints:write
+      summary: Rotate a domain's origin-lock secret
+      description: |
+        Generates a fresh origin-lock secret for this custom domain and
+        returns it **once**, in plaintext, in the `token` field; it is never
+        retrievable again afterward, only its hash is stored. Configure your
+        edge / CDN to inject it as the `X-OpenDEX-Origin-Token` request
+        header (the exact header name is echoed back in the `header` field)
+        before enabling enforcement.
+
+        Rotation is scoped to this exact hostname only; rotating one
+        domain's secret never invalidates or affects any other domain's
+        secret, so an in-flight rotation cannot break traffic for your other
+        whitelabel endpoints. The previous secret's hash is retained in a
+        secondary slot briefly so in-flight requests signed with it are not
+        immediately rejected mid-rotation.
+      parameters:
+        - $ref: '#/components/parameters/Domain'
+      responses:
+        '200':
+          description: New origin-lock secret (shown once).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, header, domain]
+                properties:
+                  token:
+                    type: string
+                    description: The new origin-lock secret in plaintext. Shown exactly once; store it in your edge/CDN configuration immediately. It cannot be retrieved again.
+                    example: "olt_9f8e7d6c5b4a3928170695a4b3c2d1e0f9e8d7c6b5a4938271605f4e3d2c1b0a"
+                  header:
+                    type: string
+                    description: The exact HTTP request header name your edge must inject with this token as its value.
+                    example: X-OpenDEX-Origin-Token
+                  domain:
+                    description: See linked schema.
+                    $ref: '#/components/schemas/WhitelabelDomain'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+components:
+  securitySchemes:
+    OwnerApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        Owner API key, always prefixed `odx_owner_`. Mint one in the portal
+        under API Keys / Owner API. The organization is
+        resolved exclusively from this key; it is never supplied separately.
+  parameters:
+    Page:
+      name: page
+      in: query
+      description: 1-indexed page number.
+      schema: { type: integer, minimum: 1, default: 1 }
+      example: 1
+    PageSize:
+      name: page_size
+      in: query
+      description: Rows per page. Values above 200 are clamped to 200.
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      example: 50
+    UserID:
+      name: userID
+      in: path
+      required: true
+      description: Business user UUID.
+      schema: { type: string, format: uuid }
+      example: 2f1e9b3a-6c4d-4e8a-9f10-2b3c4d5e6f7a
+    Domain:
+      name: domain
+      in: path
+      required: true
+      description: The fully-qualified hostname of the whitelabel domain, lowercased.
+      schema: { type: string }
+      example: api.yourbrand.com
+    ChainIDFilter:
+      name: chain_id
+      in: query
+      description: Filter to one chain. See the chains table in the API description for supported values.
+      schema:
+        type: integer
+        enum: [900, 1, 8453, 56]
+      example: 900
+  responses:
+    BadRequest:
+      description: The request was malformed (e.g. an invalid filter value or request body).
+      content:
+        application/json:
+          schema:
+            description: See linked schema.
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: The `X-API-Key` header was missing, or the key is invalid, revoked, or expired.
+      content:
+        application/json:
+          schema:
+            description: See linked schema.
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: The API key is valid but lacks the scope required for this operation.
+      content:
+        application/json:
+          schema:
+            description: See linked schema.
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: The resource does not exist, or belongs to a different organization than the authenticated key.
+      content:
+        application/json:
+          schema:
+            description: See linked schema.
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: This API key has exceeded its request rate limit (~120 requests/minute/key).
+      content:
+        application/json:
+          schema:
+            description: See linked schema.
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      description: The single error envelope used by every non-2xx response from this API.
+      required: [error]
+      properties:
+        error:
+          type: object
+          description: Nested error payload with a stable code and human-readable message.
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Short, stable, machine-readable error code. Safe to branch on in client code.
+              examples: [unauthorized, forbidden, not_found, rate_limited, invalid_request]
+            message:
+              type: string
+              description: Human-readable detail. May change between releases; do not pattern-match on this string.
+    DecimalString:
+      type: string
+      description: A base-10 numeric literal encoded as a JSON string to avoid floating point precision loss. May represent a whole or fractional amount depending on context; see the surrounding field description for units.
+      example: "1234.56789"
+    OwnerMe:
+      type: object
+      description: Metadata about the Owner API key used to authenticate the current request.
+      required: [organization_id, key_id, key_prefix, scopes]
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+          description: The business organization this key is permanently bound to.
+        key_id:
+          type: string
+          format: uuid
+          description: The unique id of this specific Owner API key (not shared with any other key, even for the same organization).
+        key_prefix:
+          type: string
+          description: A truncated, non-secret display prefix of the raw key (first 16 characters, including the `odx_owner_` prefix). Safe to show in UI for key identification.
+          example: odx_owner_AbCdEfGh
+        name:
+          type: [string, 'null']
+          description: Optional human-assigned label for this key, set at creation time.
+        scopes:
+          type: array
+          description: The scopes this key carries. See the Scopes table in the API description.
+          items:
+            type: string
+            enum: [users:read, trades:read, analytics:read, endpoints:read, endpoints:write]
+          minItems: 1
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+          description: RFC 3339 expiry timestamp, or `null` if the key never expires.
+    BusinessUserRow:
+      type: object
+      description: One business user (end-user of your organization's trading product) row, as seen in list and detail views.
+      required:
+        - id
+        - username
+        - remote_user
+        - affiliated_by_user_id
+        - solana_wallet_address
+        - solana_slot_address
+        - wallets_count
+        - slots_count
+        - trades_count
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable unique identifier for this business user.
+        username:
+          type: [string, 'null']
+          description: The user's chosen display username, if set (e.g. their Telegram username). `null` if never set.
+        remote_user:
+          type: [string, 'null']
+          description: The identifier for this user in the remote system that created them (e.g. a Telegram user id or Discord id), if applicable. `null` for users created without a remote identity.
+        affiliated_by_user_id:
+          type: [string, 'null']
+          format: uuid
+          description: The id of the business user credited as this user's referrer/affiliate, if one is set. `null` if this user has no referrer.
+        solana_wallet_address:
+          type: [string, 'null']
+          description: This user's primary Solana wallet address, if they have one. `null` if the user has no Solana wallet linked yet.
+        solana_slot_address:
+          type: [string, 'null']
+          description: This user's primary Solana trading slot (pool) address, if one exists. `null` if the user has no active Solana slot.
+        wallets_count:
+          type: integer
+          format: int64
+          description: Total number of trading wallets (across all chains) linked to this user.
+        slots_count:
+          type: integer
+          format: int64
+          description: Total number of trading slots (across all chains) belonging to this user.
+        trades_count:
+          type: integer
+          format: int64
+          description: Total number of trades this user has ever opened, across all chains.
+        created_at:
+          type: string
+          format: date-time
+          description: When this user record was first created.
+        updated_at:
+          type: string
+          format: date-time
+          description: When this user record was last modified.
+    WalletRow:
+      type: object
+      description: One trading wallet linked to a business user, on a single chain.
+      required: [id, user_id, chain_id, address, affiliated_by, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          description: Stable identifier for this wallet. Currently equal in value to `address` (the wallet address itself is the primary key in the underlying schema).
+        user_id:
+          type: string
+          format: uuid
+          description: The business user this wallet belongs to.
+        chain_id:
+          type: integer
+          description: Chain this wallet exists on. See the chains table in the API description.
+          enum: [900, 1, 8453, 56]
+        address:
+          type: string
+          description: The on-chain wallet address, in the native format for its chain (base58 for Solana, hex for EVM chains).
+        affiliated_by:
+          type: [string, 'null']
+          description: The referrer/affiliate identifier cascaded onto this specific wallet, if any. `null` if this wallet has no affiliate attribution.
+        created_at:
+          type: string
+          format: date-time
+          description: When this wallet was linked.
+        updated_at:
+          type: string
+          format: date-time
+          description: When this wallet record was last modified.
+    SlotRow:
+      type: object
+      description: One trading slot (a per-chain trading sub-account / pool) belonging to a business user.
+      required: [id, userwallet_id, user_id, chain_id, pool_address, slot_name, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable unique identifier for this slot.
+        userwallet_id:
+          type: string
+          description: The id (address) of the wallet this slot trades from.
+        user_id:
+          type: [string, 'null']
+          format: uuid
+          description: The business user this slot belongs to. May be `null` in the user-scoped detail view where the user is already known from context.
+        chain_id:
+          type: integer
+          description: Chain this slot trades on. See the chains table in the API description.
+          enum: [900, 1, 8453, 56]
+        pool_address:
+          type: string
+          description: The on-chain address of this slot's trading pool/vault.
+        slot_name:
+          type: string
+          description: Human-assigned or auto-generated display name for this slot.
+        status:
+          type: string
+          description: Current lifecycle status of the slot.
+          enum: [active, inactive]
+        created_at:
+          type: string
+          format: date-time
+          description: When this slot was created.
+        updated_at:
+          type: string
+          format: date-time
+          description: When this slot record was last modified.
+    BusinessUserList:
+      type: object
+      description: A page of business users, matching the requested filters.
+      required: [rows, total, page, page_size]
+      properties:
+        rows:
+          type: array
+          description: Business users on this page, ordered by most recently created first.
+          items:
+            $ref: '#/components/schemas/BusinessUserRow'
+        total:
+          type: integer
+          format: int64
+          description: Total number of users matching the filters across all pages, not just the count in `rows`.
+        page:
+          type: integer
+          description: The page number this response corresponds to (echoes the `page` query parameter, or its default).
+        page_size:
+          type: integer
+          description: The page size used for this response (echoes the `page_size` query parameter, or its default, clamped to the maximum).
+    BusinessUserDetail:
+      allOf:
+        - $ref: '#/components/schemas/BusinessUserRow'
+        - type: object
+          required: [wallets, slots]
+          properties:
+            wallets:
+              type: array
+              description: Every trading wallet linked to this user, across all chains.
+              items:
+                description: See linked schema.
+                $ref: '#/components/schemas/WalletRow'
+            slots:
+              type: array
+              description: Every trading slot belonging to this user, across all chains.
+              items:
+                description: See linked schema.
+                $ref: '#/components/schemas/SlotRow'
+    TradeRow:
+      type: object
+      description: One trade row, as seen in list and detail views. A trade represents one position lifecycle on one token/slot and may contain multiple underlying swaps.
+      required:
+        - id
+        - user_wallet
+        - user_id
+        - username
+        - remote_user
+        - chain_id
+        - token_address
+        - slot_address
+        - trade_status
+        - trade_balance
+        - total_traded
+        - trade_amount_usd
+        - position_id
+        - copy_trade_id
+        - is_dca
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Numeric trade identifier, unique across the organization.
+        user_wallet:
+          type: string
+          description: The wallet address that executed this trade. This is the authoritative link to the trading user; Trade rows do not carry a direct user id foreign key.
+        user_id:
+          type: [string, 'null']
+          format: uuid
+          description: The business user id resolved from `user_wallet`, if the wallet is linked to a known user. `null` for wallets not (or no longer) linked to a user record.
+        username:
+          type: [string, 'null']
+          description: Display username of the resolved user, if known.
+        remote_user:
+          type: [string, 'null']
+          description: Remote-system identifier of the resolved user, if known.
+        chain_id:
+          type: integer
+          description: Chain this trade executed on. See the chains table in the API description.
+          enum: [900, 1, 8453, 56]
+        token_address:
+          type: string
+          description: The traded token's on-chain address.
+        slot_address:
+          type: [string, 'null']
+          description: The trading slot (pool) address this trade executed through, if applicable.
+        trade_status:
+          type: string
+          description: Current lifecycle status of the trade (e.g. `OPEN`, `CLOSED`, `FAILED`). Values are chain/venue-specific; treat as an opaque string rather than an exhaustive enum.
+        trade_balance:
+          $ref: '#/components/schemas/DecimalString'
+          description: Remaining token balance held by this trade, as a decimal string in the token's native units. `null` if not applicable (e.g. fully closed trades on some venues).
+        total_traded:
+          $ref: '#/components/schemas/DecimalString'
+          description: Cumulative token amount traded (bought + sold) over this trade's lifetime, as a decimal string.
+        trade_amount_usd:
+          $ref: '#/components/schemas/DecimalString'
+          description: USD-denominated size of this trade at execution time, as a decimal string. `null` if a USD valuation could not be computed.
+        position_id:
+          type: [string, 'null']
+          format: uuid
+          description: The position configuration (buy/sell rules, targets, stop-loss) governing this trade, if one exists. `null` for trades opened without a managed position (e.g. pure manual swaps).
+        copy_trade_id:
+          type: [integer, 'null']
+          format: int64
+          description: If this trade was opened by copying another wallet's trade, the id of the copy-trade relationship. `null` for non-copy trades.
+        is_dca:
+          type: boolean
+          description: Whether this trade was opened as part of a dollar-cost-averaging schedule.
+        created_at:
+          type: string
+          format: date-time
+          description: When this trade was opened.
+        updated_at:
+          type: string
+          format: date-time
+          description: When this trade record was last modified.
+    SwapRow:
+      type: object
+      description: One on-chain swap belonging to a trade. A single trade typically has one swap per buy and one per sell/partial-sell.
+      required:
+        - id
+        - trade_id
+        - chain_id
+        - transaction_hash
+        - amount
+        - amount_usd
+        - token_address
+        - slot_address
+        - user_wallet
+        - swap_type
+        - swap_status
+        - swap_origin
+        - total_dynamic_system_fee
+        - total_dynamic_user_fee
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Numeric swap identifier, unique across the organization.
+        trade_id:
+          type: integer
+          format: int64
+          description: The trade this swap belongs to.
+        chain_id:
+          type: integer
+          description: Chain this swap executed on. See the chains table in the API description.
+          enum: [900, 1, 8453, 56]
+        transaction_hash:
+          type: [string, 'null']
+          description: On-chain transaction hash/signature for this swap. `null` until the transaction has landed.
+        amount:
+          $ref: '#/components/schemas/DecimalString'
+          description: Native-token-denominated amount swapped (the "peg" side, e.g. SOL/ETH), as a decimal string.
+        amount_usd:
+          $ref: '#/components/schemas/DecimalString'
+          description: USD-denominated size of this swap at execution time, as a decimal string.
+        token_address:
+          type: string
+          description: The traded token's on-chain address.
+        slot_address:
+          type: string
+          description: The trading slot (pool) address this swap executed through.
+        user_wallet:
+          type: string
+          description: The wallet address that executed this swap.
+        swap_type:
+          type: string
+          description: Direction of the swap.
+          enum: [BUY, SELL]
+        swap_status:
+          type: string
+          description: Current lifecycle status of the swap (e.g. `PENDING`, `CONFIRMED`, `FAILED`). Treat as an opaque string rather than an exhaustive enum.
+        swap_origin:
+          type: [string, 'null']
+          description: What triggered this swap (e.g. `MANUAL`, an autobuy variant, a sell target, or a copy-trade). Mirrors the trigger breakdown used in `trades_by_origin` analytics.
+        total_dynamic_system_fee:
+          $ref: '#/components/schemas/DecimalString'
+          description: Total system-side dynamic fee charged on this swap (sum of org, OpenDEX, affiliate, cashback, and creator components), as a decimal string in the swap's native fee unit. `null` if not yet computed.
+        total_dynamic_user_fee:
+          $ref: '#/components/schemas/DecimalString'
+          description: Total user-facing dynamic fee charged on this swap, as a decimal string. `null` if not yet computed.
+        created_at:
+          type: string
+          format: date-time
+          description: When this swap was created (submitted for execution).
+    SellTargetRow:
+      type: object
+      description: One configured automatic sell target belonging to a trade's position (e.g. a take-profit or trailing-stop level).
+      required: [id, position_id]
+      properties:
+        id:
+          type: string
+          description: Stable identifier for this sell target.
+        position_id:
+          type: string
+          description: The position this sell target belongs to.
+        swap_id:
+          type: [integer, 'null']
+          format: int64
+          description: The swap that executed when this target was hit, if it has fired yet.
+        sell_target_type:
+          type: [string, 'null']
+          description: What kind of target this is (e.g. a fixed multiple, market-cap target, or trailing stop-loss level).
+        percent_to_sell:
+          type: [string, 'null']
+          description: Percentage of the remaining position to sell when this target is hit, as a decimal string (e.g. `"25"` for 25%).
+        sell_multiple:
+          type: [string, 'null']
+          description: For multiple-based targets, the entry-price multiple that triggers this target (e.g. `"2"` for a 2x target), as a decimal string.
+        target_status:
+          type: [string, 'null']
+          description: Current status of this target (e.g. `PENDING`, `HIT`, `CANCELLED`).
+        met_price:
+          $ref: '#/components/schemas/DecimalString'
+          description: The price at which this target was actually triggered, if it has fired. `null` if not yet hit.
+        sell_at_marketcap:
+          $ref: '#/components/schemas/DecimalString'
+          description: For market-cap-based targets, the USD market cap that triggers a sell, as a decimal string.
+        sell_at_usd:
+          $ref: '#/components/schemas/DecimalString'
+          description: For price-based targets, the USD token price that triggers a sell, as a decimal string.
+    TradeSignalSource:
+      type: object
+      description: |
+        Describes what originated a trade: a manual action, an autobuy rule
+        (optionally sourced from a Telegram call, Discord call, Twitter call,
+        or TG bot), or a copy-trade relationship. Fields beyond `kind` are
+        populated only when relevant to that particular signal kind, so most
+        fields are optional/nullable in any given response.
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          description: The category of signal that triggered this trade.
+          examples: [MANUAL, TELEGRAM_CONNECTION, DISCORD, TWITTER, TG_BOT, COPY_TRADE, COPYCAT]
+        autobuy_type: { type: [string, 'null'], description: "The specific autobuy rule variant, when `kind` is autobuy-derived." }
+        intention_id: { type: [string, 'null'], description: Id of the autobuy intention that produced this trade. }
+        filter_id: { type: [string, 'null'], description: Id of the autobuy filter rule that matched. }
+        is_dry_run: { type: boolean, description: Whether the originating autobuy rule was running in dry-run (simulate only) mode. }
+        caller_name: { type: [string, 'null'], description: Display name of the caller/source that produced the signal. }
+        executed_at: { type: [string, 'null'], format: date-time, description: When the autobuy rule executed to produce this trade. }
+        signal_at: { type: [string, 'null'], format: date-time, description: When the underlying call/signal was originally observed. }
+        market_cap_usd: { $ref: '#/components/schemas/DecimalString', description: Token market cap in USD at the time the signal was observed. }
+        chat_name: { type: [string, 'null'], description: "Telegram chat name, for Telegram-sourced signals." }
+        chat_type: { type: [string, 'null'], description: "Telegram chat type, for Telegram-sourced signals." }
+        chat_id: { type: [integer, 'null'], format: int64, description: "Telegram chat id, for Telegram-sourced signals." }
+        server_name: { type: [string, 'null'], description: "Discord server name, for Discord-sourced signals." }
+        server_id: { type: [string, 'null'], description: "Discord server id, for Discord-sourced signals." }
+        channel_name: { type: [string, 'null'], description: "Discord channel name, for Discord-sourced signals." }
+        sender_name: { type: [string, 'null'], description: Display name of the message sender that produced the signal. }
+        message_id: { type: [string, 'null'], description: Id of the originating message. }
+        handle: { type: [string, 'null'], description: "Twitter/X handle, for Twitter-sourced signals." }
+        twitter_user_id: { type: [string, 'null'], description: "Twitter/X user id, for Twitter-sourced signals." }
+        source_name: { type: [string, 'null'], description: Name of the TG bot signal source. }
+        source_type: { type: [string, 'null'], description: Type of the TG bot signal source. }
+        wallet_name: { type: [string, 'null'], description: "Display name of the copied wallet, for copy-trade signals." }
+        wallet_address: { type: [string, 'null'], description: "Address of the copied wallet, for copy-trade signals." }
+        copy_trade_type: { type: [string, 'null'], description: "The copy-trade relationship variant, for copy-trade signals." }
+        copy_wallet_name: { type: [string, 'null'], description: Display name configured for the copy-trade relationship. }
+    PositionDetail:
+      type: object
+      description: |
+        The managed-position configuration governing a trade's automatic
+        buy/sell behavior (targets, stop-loss, slippage, gas strategy), when
+        the trade was opened under a position rather than as a pure manual
+        swap. This object mirrors the underlying position configuration
+        closely and is intentionally not exhaustively typed field-by-field
+        here; treat it as a detailed, mostly-nullable configuration bag
+        whose `sell_targets` array is the most commonly consumed piece.
+      properties:
+        position_defender_enabled:
+          type: boolean
+          description: Whether automated position-defense (anti-rug / anti-dump protection) is enabled for this position.
+        stop_loss_target_type:
+          type: string
+          description: How the stop-loss level for this position is expressed (e.g. price-based or market-cap-based).
+        stop_loss_sell_at_usd:
+          $ref: '#/components/schemas/DecimalString'
+          description: USD token price that triggers the stop-loss, if price-based.
+        stop_loss_sell_at_marketcap:
+          $ref: '#/components/schemas/DecimalString'
+          description: USD market cap that triggers the stop-loss, if market-cap-based.
+        trailing_stop_loss_ath:
+          $ref: '#/components/schemas/DecimalString'
+          description: All-time-high price/market-cap reference used for trailing stop-loss calculations, if trailing stop-loss is configured.
+        auto_slippage:
+          type: boolean
+          description: Whether slippage tolerance is computed automatically for this position's swaps rather than fixed.
+        error:
+          type: [string, 'null']
+          description: The last error encountered while managing this position automatically, if any.
+        sell_targets:
+          type: array
+          description: Every configured automatic sell target for this position (duplicated from `TradeDetail.sell_targets` for convenience).
+          items:
+            description: See linked schema.
+            $ref: '#/components/schemas/SellTargetRow'
+    TradeList:
+      type: object
+      description: A page of trades, matching the requested filters.
+      required: [rows, total, page, page_size]
+      properties:
+        rows:
+          type: array
+          description: Trades on this page, ordered by most recently created first.
+          items:
+            $ref: '#/components/schemas/TradeRow'
+        total:
+          type: integer
+          format: int64
+          description: Total number of trades matching the filters across all pages, not just the count in `rows`.
+        page:
+          type: integer
+          description: The page number this response corresponds to.
+        page_size:
+          type: integer
+          description: The page size used for this response.
+    TradeDetail:
+      type: object
+      description: Full detail for one trade, including its originating signal, managed-position configuration, underlying swaps, and sell targets.
+      required: [trade, signal_source, position, swaps, sell_targets]
+      properties:
+        trade:
+          description: See linked schema.
+          $ref: '#/components/schemas/TradeRow'
+        signal_source:
+          oneOf:
+            - $ref: '#/components/schemas/TradeSignalSource'
+            - type: 'null'
+          description: What originated this trade. `null` if no signal could be resolved (rare; typically only for very old or manually-imported trades).
+        position:
+          oneOf:
+            - $ref: '#/components/schemas/PositionDetail'
+            - type: 'null'
+          description: The managed-position configuration for this trade. `null` if the trade has no `position_id` (opened as a pure manual swap).
+        swaps:
+          type: array
+          description: Every on-chain swap that has executed as part of this trade, oldest first.
+          items:
+            description: See linked schema.
+            $ref: '#/components/schemas/SwapRow'
+        sell_targets:
+          type: array
+          description: Every automatic sell target configured for this trade's position. Empty if the trade has no position.
+          items:
+            description: See linked schema.
+            $ref: '#/components/schemas/SellTargetRow'
+    StatsResp:
+      type: object
+      description: Daily time-series analytics for your organization over the requested rolling window.
+      required: [range, new_users, trades_by_origin, avg_buy_size, active_wallets, slots_created, volume_by_day, fees_by_type]
+      properties:
+        range:
+          type: string
+          description: The rolling window token this response was computed over (echoes the request, or its `14d` default).
+          enum: [today, 7d, 14d, 30d]
+        warnings:
+          type: array
+          description: Names of any sub-series that failed to compute for this window and were therefore omitted. Empty or absent when every series succeeded.
+          items:
+            type: string
+          examples: [[], ["fees_by_type"]]
+        new_users:
+          type: array
+          description: Count of newly created business users per calendar day (UTC).
+          items:
+            type: object
+            required: [date, count]
+            properties:
+              date: { type: string, format: date, description: "Calendar day (UTC), as `YYYY-MM-DD`." }
+              count: { type: integer, format: int64, description: Number of users created on this day. }
+        trades_by_origin:
+          type: array
+          description: Trade counts per calendar day (UTC), broken down by what triggered each trade.
+          items:
+            type: object
+            required: [date, manual, autobuy, tg_autobuy, targets_stoploss, snipes]
+            properties:
+              date: { type: string, format: date, description: "Calendar day (UTC), as `YYYY-MM-DD`." }
+              manual: { type: integer, format: int64, description: Trades opened manually by the user. }
+              autobuy: { type: integer, format: int64, description: Trades opened by a signal-based autobuy rule (Telegram/Discord/Twitter call). }
+              tg_autobuy: { type: integer, format: int64, description: Trades opened by the Telegram bot's own autobuy flow. }
+              targets_stoploss: { type: integer, format: int64, description: Sell trades executed by hitting a configured target or stop-loss. }
+              snipes: { type: integer, format: int64, description: Trades opened via new-token sniping. }
+        avg_buy_size:
+          type: array
+          description: Average USD buy size per calendar day (UTC), broken out per chain.
+          items:
+            type: object
+            required: [date, chain_id, avg_amount]
+            properties:
+              date: { type: string, format: date, description: "Calendar day (UTC), as `YYYY-MM-DD`." }
+              chain_id: { type: integer, enum: [900, 1, 8453, 56], description: Chain this average applies to. }
+              avg_amount: { $ref: '#/components/schemas/DecimalString', description: "Average USD buy size on this chain and day, as a decimal string." }
+        active_wallets:
+          type: array
+          description: Count of distinct trading wallets active per calendar day (UTC), broken out per chain.
+          items:
+            type: object
+            required: [date, chain_id, count]
+            properties:
+              date: { type: string, format: date, description: "Calendar day (UTC), as `YYYY-MM-DD`." }
+              chain_id: { type: integer, enum: [900, 1, 8453, 56], description: Chain this count applies to. }
+              count: { type: integer, format: int64, description: Number of distinct wallets that traded on this chain and day. }
+        slots_created:
+          type: array
+          description: Count of new trading slots created per calendar day (UTC), broken out per chain.
+          items:
+            type: object
+            required: [date, chain_id, count]
+            properties:
+              date: { type: string, format: date, description: "Calendar day (UTC), as `YYYY-MM-DD`." }
+              chain_id: { type: integer, enum: [900, 1, 8453, 56], description: Chain this count applies to. }
+              count: { type: integer, format: int64, description: Number of slots created on this chain and day. }
+        volume_by_day:
+          type: array
+          description: Total USD trade volume per calendar day (UTC), summed across every chain.
+          items:
+            type: object
+            required: [date, volume]
+            properties:
+              date: { type: string, format: date, description: "Calendar day (UTC), as `YYYY-MM-DD`." }
+              volume: { type: number, description: "Total USD trade volume on this day, summed across all chains." }
+        fees_by_type:
+          type: array
+          description: Collected fees per calendar day (UTC), broken out per fee type.
+          items:
+            type: object
+            required: [date, dynamic_fee_type, sum_fee_usd]
+            properties:
+              date: { type: string, format: date, description: "Calendar day (UTC), as `YYYY-MM-DD`." }
+              dynamic_fee_type:
+                type: string
+                description: |
+                  Which recipient this fee amount was allocated to: `ORG`
+                  (your organization's revenue share), `FEE` (OpenDEX
+                  platform fee), `AFFILIATE` (paid out to a referring
+                  affiliate), `CASHBACK` (returned to the trading user), or
+                  `CREATOR` (paid to a content creator/influencer whose
+                  content originated the trade).
+                enum: [ORG, FEE, AFFILIATE, CASHBACK, CREATOR]
+              sum_fee_usd: { $ref: '#/components/schemas/DecimalString', description: "Total USD fee amount allocated to this type on this day, as a decimal string." }
+    ReportResp:
+      type: object
+      description: A single aggregated report snapshot for your organization over the requested rolling window.
+      required: [range, trade_stats, fees, volume_all, volume_buy, volume_sell, avg_daily_volume, avg_buy_size, users_created, affiliated_users, usd_on_slots]
+      properties:
+        range:
+          type: string
+          description: The rolling window token this response was computed over (echoes the request, or its `today` default).
+          enum: [today, 7d, 14d, 30d]
+        trade_stats:
+          type: object
+          description: Trade-count breakdown for the window.
+          required: [unique_tokens, total_trades, manual_trades, tg_autobuys, autobuys, targets_hit, stoploss_hit]
+          properties:
+            unique_tokens: { type: integer, format: int64, description: Count of distinct tokens traded in the window. }
+            total_trades: { type: integer, format: int64, description: "Total trades opened in the window, across all origins." }
+            manual_trades: { type: integer, format: int64, description: Trades opened manually by users. }
+            tg_autobuys: { type: integer, format: int64, description: Trades opened by the Telegram bot's autobuy flow. }
+            autobuys: { type: integer, format: int64, description: Trades opened by signal-based autobuy rules. }
+            targets_hit: { type: integer, format: int64, description: Sell targets that were hit in the window. }
+            stoploss_hit: { type: integer, format: int64, description: Stop-loss levels that were hit in the window. }
+        fees:
+          type: object
+          description: |
+            Collected fees for the window, keyed by fee type (`ORG`, `FEE`,
+            `AFFILIATE`, `CASHBACK`, `CREATOR`; see `StatsResp.fees_by_type`
+            for what each type represents). Each value is the per-chain
+            breakdown for that fee type. This is a free-form map because the
+            set of fee types present depends on what actually accrued in the
+            window; absent keys mean zero activity of that type, not an
+            error.
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              required: [chain_id, total_fee_usd]
+              properties:
+                chain_id: { type: integer, enum: [900, 1, 8453, 56], description: Chain this fee total applies to. }
+                total_fee_usd: { $ref: '#/components/schemas/DecimalString', description: "Total USD fee amount of this type, on this chain, in the window." }
+          example:
+            ORG:
+              - chain_id: 900
+                total_fee_usd: "1204.50"
+            AFFILIATE:
+              - chain_id: 900
+                total_fee_usd: "88.10"
+        volume_all:
+          type: array
+          description: Total trade volume in the window, per chain, across both buys and sells.
+          items:
+            description: See linked schema.
+            $ref: '#/components/schemas/ReportVolumeRow'
+        volume_buy:
+          type: array
+          description: Buy-side trade volume in the window, per chain.
+          items:
+            description: See linked schema.
+            $ref: '#/components/schemas/ReportVolumeRow'
+        volume_sell:
+          type: array
+          description: Sell-side trade volume in the window, per chain.
+          items:
+            description: See linked schema.
+            $ref: '#/components/schemas/ReportVolumeRow'
+        avg_daily_volume:
+          type: array
+          description: Average daily USD trade volume over the window, per chain.
+          items:
+            type: object
+            required: [chain_id, avg_daily_usd]
+            properties:
+              chain_id: { type: integer, enum: [900, 1, 8453, 56], description: Chain this average applies to. }
+              avg_daily_usd: { $ref: '#/components/schemas/DecimalString', description: "Average USD volume per day on this chain over the window, as a decimal string." }
+        avg_buy_size:
+          type: array
+          description: Average buy size in the window, broken out by named cohort (e.g. per chain, or per trade origin) rather than a fixed per-chain shape.
+          items:
+            type: object
+            required: [name, amount]
+            properties:
+              name: { type: string, description: Label identifying which cohort this average applies to. }
+              amount: { $ref: '#/components/schemas/DecimalString', description: "Average USD buy size for this cohort, as a decimal string." }
+        users_created:
+          type: integer
+          format: int64
+          description: Total business users created in the window.
+        affiliated_users:
+          type: integer
+          format: int64
+          description: Total business users in the window that have a referrer/affiliate set.
+        usd_on_slots:
+          type: array
+          description: Current USD value parked across all open trading slots, per chain (a point-in-time snapshot, not window-bounded like the other fields).
+          items:
+            type: object
+            required: [chain_id, usd]
+            properties:
+              chain_id: { type: integer, enum: [900, 1, 8453, 56], description: Chain this total applies to. }
+              usd: { $ref: '#/components/schemas/DecimalString', description: "Current USD value on slots on this chain, as a decimal string." }
+    ReportVolumeRow:
+      type: object
+      description: Trade volume and count for one chain over the report window.
+      required: [chain_id, total_volume, num_trades, avg_trade]
+      properties:
+        chain_id:
+          type: integer
+          enum: [900, 1, 8453, 56]
+          description: Chain this row applies to.
+        total_volume:
+          $ref: '#/components/schemas/DecimalString'
+          description: Total USD trade volume on this chain in the window, as a decimal string.
+        num_trades:
+          type: integer
+          format: int64
+          description: Number of trades contributing to this volume total.
+        avg_trade:
+          $ref: '#/components/schemas/DecimalString'
+          description: Average USD size per trade on this chain in the window, as a decimal string.
+    FeePayoutRail:
+      type: object
+      description: The configured on-chain payout rail (destination network/token) used to settle collected fees to you.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier for this payout rail configuration.
+        enabled:
+          type: boolean
+          description: Whether this rail is currently active for settlement.
+        rail_type:
+          type: string
+          description: The kind of settlement rail (e.g. a Solana stablecoin payout vault).
+          example: SOLANA_STABLECOIN
+        cluster:
+          type: string
+          description: Solana cluster this rail operates on (e.g. `mainnet-beta`).
+        program_id:
+          type: string
+          description: On-chain program id that manages this payout rail.
+        payout_config_pda:
+          type: string
+          description: Program-derived address holding this rail's payout configuration.
+        fee_payout_vault:
+          type: string
+          description: On-chain vault address holding collected fees pending payout.
+        mint:
+          type: string
+          description: Token mint address for the settlement token on this rail.
+        token_symbol:
+          type: string
+          description: Human-readable symbol for the settlement token (e.g. `USDC`).
+        token_decimals:
+          type: integer
+          description: Decimal places of the settlement token, for converting atomic amounts to display units.
+        liquidity_finalized_at:
+          type: [string, 'null']
+          format: date-time
+          description: When liquidity for the most recent finalized payout batch was confirmed. `null` if no batch has finalized yet.
+    FeePayoutDestination:
+      type: object
+      description: The verified on-chain address collected fees will be paid out to.
+      required: [address, verified]
+      properties:
+        address:
+          type: string
+          description: The destination wallet address for payouts.
+        verified:
+          type: boolean
+          description: Whether this destination address has completed the verification flow required before payouts can be sent to it.
+    FeeWithdrawal:
+      type: object
+      description: One historical withdrawal of collected fees from the available balance to the configured payout destination.
+      required: [withdrawal_id, amount_atomic, status, created_at]
+      properties:
+        withdrawal_id:
+          type: string
+          format: uuid
+          description: Unique identifier for this withdrawal.
+        amount_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Withdrawn amount, in the smallest unit of the payout rail's token, as a decimal string.
+        status:
+          type: string
+          description: Current status of the withdrawal (e.g. `PENDING`, `CONFIRMED`, `FAILED`).
+        created_at:
+          type: string
+          format: date-time
+          description: When this withdrawal was initiated.
+        transaction_signature:
+          type: [string, 'null']
+          description: On-chain transaction signature/hash for this withdrawal, once broadcast. `null` while still pending.
+    SolanaFees:
+      type: object
+      description: Cumulative, all-time collected `ORG`-type dynamic fee on Solana for your organization.
+      required: [organization_id, org_fee_lamports, org_fee_sol]
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+          description: Your organization's id.
+        org_fee_lamports:
+          $ref: '#/components/schemas/DecimalString'
+          description: Cumulative collected org fee, in lamports (1 SOL = 1,000,000,000 lamports), as an exact decimal string.
+        org_fee_sol:
+          $ref: '#/components/schemas/DecimalString'
+          description: The same amount converted to SOL, formatted as a decimal string to 9 decimal places. Prefer `org_fee_lamports` when exact precision matters.
+    PolymarketFees:
+      type: object
+      description: |
+        Polymarket builder-fee earnings, attribution-pipeline health, and
+        payout configuration for your organization, optionally windowed by
+        `from`/`to` and scoped to one `builder_code_id`.
+      required:
+        - organization_id
+        - affiliate_payout
+        - basis
+        - actual_builder_fee_atomic
+        - organization_split_atomic
+        - affiliate_split_atomic
+        - opendex_split_atomic
+        - available_balance_atomic
+        - reserved_balance_atomic
+        - pending_attribution_count
+        - unattributed_count
+        - conflict_count
+        - quarantined_count
+        - last_processed_at
+        - processing_lag_seconds
+        - payout_destination
+        - payout_rail
+        - withdrawals
+        - bridge_available
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+          description: Your organization's id.
+        affiliate_payout:
+          type: 'null'
+          description: Always `null` for Owner API keys. Affiliate-specific payout detail is only exposed to the affiliate's own authenticated portal session, not at the organization level.
+        basis:
+          type: string
+          description: How the builder fee figures were computed.
+          example: actual_confirmed_builder_fee
+        actual_builder_fee_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Total confirmed builder fee earned by Polymarket trades attributed to your organization in the window, in the settlement token's smallest unit, as a decimal string.
+        organization_split_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Portion of `actual_builder_fee_atomic` allocated to your organization, atomic decimal string.
+        affiliate_split_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Portion of `actual_builder_fee_atomic` allocated to affiliates, atomic decimal string.
+        opendex_split_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Portion of `actual_builder_fee_atomic` retained by OpenDEX, atomic decimal string.
+        available_balance_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Your organization's current withdrawable fee balance, atomic decimal string.
+        reserved_balance_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Your organization's current balance reserved (not yet withdrawable, e.g. pending settlement finality), atomic decimal string.
+        pending_attribution_count:
+          type: integer
+          format: int64
+          description: Number of fills awaiting attribution to a specific trade/order (already attributed but not yet processed into the ledger).
+        unattributed_count:
+          type: integer
+          format: int64
+          description: Number of fills that could not be automatically attributed to any known order.
+        conflict_count:
+          type: integer
+          format: int64
+          description: Number of fills where attribution produced conflicting candidate matches requiring manual review.
+        quarantined_count:
+          type: integer
+          format: int64
+          description: Number of fills held in quarantine pending investigation (e.g. suspected misattribution).
+        last_processed_at:
+          type: [string, 'null']
+          format: date-time
+          description: Timestamp of the most recently processed fill in the attribution pipeline. `null` if nothing has been processed yet.
+        processing_lag_seconds:
+          type: integer
+          format: int64
+          description: Approximate age, in seconds, of the oldest fill still awaiting processing. `0` when the pipeline is fully caught up.
+        payout_destination:
+          oneOf:
+            - $ref: '#/components/schemas/FeePayoutDestination'
+            - type: 'null'
+          description: Your organization's verified payout destination for these fees. `null` if no payout destination has been configured yet.
+        payout_rail:
+          oneOf:
+            - $ref: '#/components/schemas/FeePayoutRail'
+            - type: 'null'
+          description: The settlement rail these fees will be paid out through. `null` if no payout rail is configured for your environment.
+        withdrawals:
+          type: array
+          description: Historical withdrawals of these fees to your payout destination, most recent first.
+          items:
+            description: See linked schema.
+            $ref: '#/components/schemas/FeeWithdrawal'
+        bridge_available:
+          type: boolean
+          description: Whether cross-chain bridging is currently available for withdrawing this rail's settlement token to another chain.
+    HyperliquidFees:
+      type: object
+      description: |
+        Hyperliquid builder-fee earnings, order funnel counts, and payout
+        configuration for your organization, optionally windowed by
+        `from`/`to` and scoped to one `builder_code_id`.
+      required:
+        - organization_id
+        - venue
+        - tenant_scope
+        - basis
+        - fee_model
+        - actual_builder_fee_atomic
+        - organization_split_atomic
+        - affiliate_split_atomic
+        - opendex_split_atomic
+        - earned_atomic
+        - pending_atomic
+        - held_atomic
+        - available_balance_atomic
+        - reserved_balance_atomic
+        - managed_users
+        - submitted_orders
+        - filled_orders
+        - volume_atomic
+        - volume_known
+        - pending_attribution_count
+        - quarantined_count
+        - processing_lag_seconds
+        - last_processed_at
+        - payout_destination
+        - payout_rail
+        - withdrawals
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+          description: Your organization's id.
+        venue:
+          type: string
+          description: Always `HYPERLIQUID` for this endpoint.
+          example: HYPERLIQUID
+        tenant_scope:
+          type: string
+          description: What the figures in this response are scoped by. Always `organization_id`; shared builder addresses are never used as the tenant key.
+          example: organization_id
+        basis:
+          type: string
+          description: How the builder fee figures were computed.
+          example: actual_confirmed_builder_fee
+        fee_model:
+          type: string
+          description: The builder-fee model configuration in effect (perps/spot fee-per-fill in tenths of a basis point).
+          example: builder_profile_f
+        actual_builder_fee_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Total confirmed builder fee earned by Hyperliquid orders attributed to your organization in the window, atomic decimal string.
+        organization_split_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Portion of `actual_builder_fee_atomic` allocated to your organization, atomic decimal string.
+        affiliate_split_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Portion of `actual_builder_fee_atomic` allocated to affiliates, atomic decimal string.
+        opendex_split_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Portion of `actual_builder_fee_atomic` retained by OpenDEX, atomic decimal string.
+        earned_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Alias of `organization_split_atomic`, provided for parity with the balance-oriented fields below.
+        pending_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Builder fee already attributed but not yet processed into the settlement ledger, atomic decimal string.
+        held_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Builder fee currently held in quarantine pending investigation, atomic decimal string.
+        available_balance_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Your organization's current withdrawable fee balance, atomic decimal string.
+        reserved_balance_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Your organization's current balance reserved (not yet withdrawable), atomic decimal string.
+        managed_users:
+          type: integer
+          format: int64
+          description: Count of distinct end-users whose Hyperliquid orders are attributed to your organization in the window.
+        submitted_orders:
+          type: integer
+          format: int64
+          description: Total orders submitted through your builder attribution in the window.
+        filled_orders:
+          type: integer
+          format: int64
+          description: Total orders that reached a filled/posted outcome in the window.
+        volume_atomic:
+          $ref: '#/components/schemas/DecimalString'
+          description: Total notional trading volume attributed to your organization in the window, atomic decimal string. See `volume_known`.
+        volume_known:
+          type: boolean
+          description: Whether `volume_atomic` reflects a fully reconciled figure. `false` while historical backfill for the window is still in progress, in which case treat the volume as a lower bound.
+        pending_attribution_count:
+          type: integer
+          format: int64
+          description: Number of fills awaiting processing in the attribution pipeline.
+        quarantined_count:
+          type: integer
+          format: int64
+          description: Number of fills held in quarantine pending investigation.
+        processing_lag_seconds:
+          type: integer
+          format: int64
+          description: Approximate age, in seconds, of the oldest fill still awaiting processing. `0` when fully caught up.
+        last_processed_at:
+          type: [string, 'null']
+          format: date-time
+          description: Timestamp of the most recently processed fill. `null` if nothing has been processed yet.
+        payout_destination:
+          oneOf:
+            - $ref: '#/components/schemas/FeePayoutDestination'
+            - type: 'null'
+          description: Your organization's verified payout destination for these fees. `null` if not yet configured.
+        payout_rail:
+          oneOf:
+            - $ref: '#/components/schemas/FeePayoutRail'
+            - type: 'null'
+          description: The settlement rail these fees will be paid out through. `null` if not configured for your environment.
+        withdrawals:
+          type: array
+          description: Historical withdrawals of these fees to your payout destination, most recent first.
+          items:
+            description: See linked schema.
+            $ref: '#/components/schemas/FeeWithdrawal'
+    PlatformApiInfo:
+      type: object
+      description: How to reach the credits-metered Platform (proxy) API that your end-users' trading clients call.
+      required: [base_url, auth_header, key_prefix, docs_url]
+      properties:
+        base_url:
+          type: string
+          format: uri
+          description: Base URL of the Platform API for your environment.
+          example: https://api.opendex.ws
+        auth_header:
+          type: string
+          description: HTTP header name Platform API keys are passed in.
+          example: X-API-Key
+        key_prefix:
+          type: string
+          description: Prefix used by Platform API keys, to distinguish them from Owner API keys.
+          example: odx_b2b_
+        docs_url:
+          type: string
+          format: uri
+          description: Human-readable documentation for obtaining and using Platform API keys.
+    OwnerApiInfo:
+      type: object
+      description: How to reach this Owner API and its contract-discovery documents.
+      required: [base_url, auth_header, key_prefix, openapi_url, llms_txt_url]
+      properties:
+        base_url:
+          type: string
+          format: uri
+          description: Base URL of this Owner API (everything under this base is prefixed `/owner`).
+          example: https://portal-api.opendex.ws/v1/owner
+        auth_header:
+          type: string
+          description: HTTP header name Owner API keys are passed in.
+          example: X-API-Key
+        key_prefix:
+          type: string
+          description: Prefix used by Owner API keys.
+          example: odx_owner_
+        openapi_url:
+          type: string
+          format: uri
+          description: URL of this API's OpenAPI 3.1 JSON document.
+        llms_txt_url:
+          type: string
+          format: uri
+          description: URL of this API's llms.txt companion guide.
+    WhitelabelDomainList:
+      type: object
+      description: The full set of whitelabel domains configured for your organization.
+      required: [domains, origin_lock_configured, custom_domain_limit, custom_domain_count]
+      properties:
+        domains:
+          type: array
+          description: Every whitelabel domain for this organization (prod, dev, and custom_prod).
+          items:
+            $ref: '#/components/schemas/WhitelabelDomain'
+        origin_lock_configured:
+          type: boolean
+          description: Whether any `custom_prod` domain in your organization currently has an origin-lock secret configured (regardless of whether enforcement is currently on).
+        custom_domain_limit:
+          type: [integer, 'null']
+          format: int64
+          description: Maximum number of `custom_prod` domains your current subscription plan allows. `null` means unlimited.
+        custom_domain_count:
+          type: integer
+          format: int64
+          description: Number of `custom_prod` domains you currently have registered, counted against `custom_domain_limit`.
+    WhitelabelInfo:
+      type: object
+      description: Summary of your organization's whitelabel endpoint configuration.
+      required: [default_prod_domain, default_dev_domain]
+      properties:
+        default_prod_domain:
+          type: string
+          description: Your organization's auto-provisioned production whitelabel hostname, in the form `<org-id>.wl.opendex.ws`.
+        default_dev_domain:
+          type: string
+          description: Your organization's auto-provisioned, always-CORS-open development whitelabel hostname, in the form `<org-id>.wl-dev.opendex.ws`. Intended for local/staging integration testing only.
+        domains:
+          type: array
+          description: Every whitelabel domain configured for your organization (default prod, default dev, and any custom domains). Omitted only in degraded environments where domain storage is unavailable.
+          items:
+            description: See linked schema.
+            $ref: '#/components/schemas/WhitelabelDomain'
+        custom_domain_limit:
+          type: [integer, 'null']
+          format: int64
+          description: Maximum number of custom domains your plan allows. `null` means unlimited.
+        custom_domain_count:
+          type: integer
+          format: int64
+          description: Number of custom domains you currently have registered.
+    EndpointsOverview:
+      type: object
+      description: A single overview of every machine-facing base URL and whitelabel configuration relevant to your organization.
+      required: [platform_api, owner_api, whitelabel]
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+          description: Your organization's id.
+        platform_api:
+          description: See linked schema.
+          $ref: '#/components/schemas/PlatformApiInfo'
+        owner_api:
+          description: See linked schema.
+          $ref: '#/components/schemas/OwnerApiInfo'
+        whitelabel:
+          description: See linked schema.
+          $ref: '#/components/schemas/WhitelabelInfo'
+    VerificationRecord:
+      type: object
+      description: One DNS record you must create at your DNS provider to prove control of a custom domain and/or complete TLS issuance.
+      required: [type, name, value]
+      properties:
+        type:
+          type: string
+          description: DNS record type to create.
+          examples: [CNAME, TXT]
+        name:
+          type: string
+          description: DNS record name (host) to create the record under.
+        value:
+          type: string
+          description: DNS record value/target to set.
+        status:
+          type: string
+          description: Current verification status of this specific record, if known.
+    WhitelabelDomain:
+      type: object
+      description: One whitelabel domain (default production, default development, or a customer-owned custom domain) belonging to your organization.
+      required:
+        - domain
+        - url
+        - domain_kind
+        - status
+        - ready
+        - allowed_origins
+        - enforce_origin_lock
+        - origin_lock_configured
+      properties:
+        domain:
+          type: string
+          description: The fully-qualified hostname, lowercased.
+        url:
+          type: string
+          format: uri
+          description: The `https://` URL for this domain.
+        domain_kind:
+          type: string
+          description: |
+            What kind of domain this is: `prod` (your org's default
+            production hostname, auto-provisioned), `dev` (your org's
+            default, always-CORS-open development hostname), or
+            `custom_prod` (a customer-owned domain you registered via
+            `POST /owner/endpoints/domains/custom`).
+          enum: [prod, dev, custom_prod]
+        status:
+          type: string
+          description: Current lifecycle/routing status of this domain.
+          enum: [pending, active, disabled]
+        ready:
+          type: boolean
+          description: Whether this domain is fully usable right now; `true` when `status` is `active` and (for non-dev domains) `allowed_origins` is non-empty. `dev` domains are always ready once active, since they have no CORS restriction to configure.
+        allowed_origins:
+          type: array
+          description: |
+            Browser CORS origins allowed to call your API through this
+            domain. For `dev` domains this is always `["http://*", "https://*"]`
+            (fully open) and cannot be changed. For `prod`/`custom_prod`
+            domains this reflects whatever was last set via
+            `PATCH /owner/endpoints/domains/{domain}/origins`.
+          items:
+            type: string
+        cloudflare_custom_hostname_id:
+          type: string
+          description: The Cloudflare for SaaS custom hostname id backing this domain, if provisioned. Omitted for domains that don't use Cloudflare for SaaS.
+        cloudflare_hostname_status:
+          type: string
+          description: Cloudflare's last-reported hostname verification status. Omitted if not applicable.
+        cloudflare_ssl_status:
+          type: string
+          description: Cloudflare's last-reported TLS certificate status for this hostname (e.g. `pending_validation`, `active`). Omitted if not applicable.
+        cname_target:
+          type: string
+          description: The CNAME target you must point this domain at in your DNS provider, for `custom_prod` domains. Omitted for `prod`/`dev` domains.
+        verification_records:
+          type: array
+          description: DNS records (TXT/CNAME) you must create to complete domain control validation and TLS issuance, for `custom_prod` domains. Omitted or empty once verification is complete.
+          items:
+            description: See linked schema.
+            $ref: '#/components/schemas/VerificationRecord'
+        enforce_origin_lock:
+          type: boolean
+          description: Whether origin-lock enforcement is currently turned on for this domain (requests must carry a valid `X-OpenDEX-Origin-Token`).
+        origin_lock_configured:
+          type: boolean
+          description: Whether an origin-lock secret has been generated for this domain (a prerequisite for enabling `enforce_origin_lock`), regardless of whether enforcement is currently on.
+        created_at:
+          type: string
+          format: date-time
+          description: When this domain was created. Omitted if unavailable.
+        updated_at:
+          type: string
+          format: date-time
+          description: When this domain was last modified. Omitted if unavailable.
+    UpdateOriginsRequest:
+      type: object
+      description: Full replacement list of CORS origins for a `prod`/`custom_prod` whitelabel domain. See the validation rules on `PATCH /owner/endpoints/domains/{domain}/origins`.
+      required: [allowed_origins]
+      properties:
+        allowed_origins:
+          type: array
+          description: Complete desired set of allowed CORS origins. At most 50 entries, each at most 512 characters, absolute `http(s)://host` with no path/query/userinfo, wildcard allowed only as a leftmost subdomain label with a concrete parent domain.
+          maxItems: 50
+          items:
+            type: string
+            maxLength: 512
+          example:
+            - "https://app.example.com"
+            - "https://*.staging.example.com"
+    CreateCustomDomainRequest:
+      type: object
+      description: Request body to register a new customer-owned custom whitelabel domain.
+      required: [domain]
+      properties:
+        domain:
+          type: string
+          description: The fully-qualified hostname to register (e.g. `api.yourbrand.com`). Must not be an IP address, must not be a reserved OpenDEX suffix, and must be globally unique across all organizations.
+          example: api.yourbrand.com
+    OriginLockRequest:
+      type: object
+      description: Request body to toggle origin-lock enforcement for a domain.
+      required: [enforce]
+      properties:
+        enforce:
+          type: boolean
+          description: |
+            `true` to turn on origin-lock enforcement for this domain (requires
+            a configured secret and a passing live probe; see
+            `PATCH /owner/endpoints/domains/{domain}/origin-lock`), `false` to
+            turn it off unconditionally.
