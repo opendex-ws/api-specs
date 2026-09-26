@@ -47,16 +47,18 @@ info:
     | `analytics:read`   | Time-series stats, aggregate reports, and venue fee summaries    |
     | `endpoints:read`   | Read whitelabel endpoint / custom domain configuration           |
     | `endpoints:write`  | Create, verify, enable/disable, and reconfigure custom domains   |
+    | `webhooks:read`    | List Solana addresses watched for transfer webhooks              |
+    | `webhooks:write`   | Add or remove one watched Solana address                         |
 
     When a key is minted without an explicit scope list, it defaults to the
     three read-only analytics scopes: **`users:read`, `trades:read`, and
-    `analytics:read`**. `endpoints:read` and `endpoints:write` are never granted
-    by default and must be selected explicitly, since they touch CORS and
-    routing configuration for your public-facing endpoints.
+    `analytics:read`**. `endpoints:read`, `endpoints:write`, `webhooks:read`,
+    and `webhooks:write` are never granted by default and must be selected
+    explicitly.
 
-    A single key may carry any non-empty subset of the five scopes; scopes are
-    otherwise independent (e.g. a key can have `endpoints:write` without
-    `endpoints:read`; read endpoints still require `endpoints:read`
+    A single key may carry any non-empty subset of the seven scopes; scopes are
+    otherwise independent (e.g. a key can have `webhooks:write` without
+    `webhooks:read`; listing addresses still requires `webhooks:read`
     specifically, since read and write are enforced as separate scopes).
 
     ## Organization resolution & isolation
@@ -154,6 +156,8 @@ tags:
     description: Venue-specific collected fee summaries for Solana, Polymarket, and Hyperliquid.
   - name: Endpoints
     description: Machine-facing endpoint discovery and whitelabel custom domain management (CORS origins, custom hostnames, origin lock).
+  - name: Webhooks
+    description: Solana addresses whose SOL and USDC transfers emit address.transfer webhooks. Watching an address is free. Delivery of the webhook is still metered.
   - name: Spec
     description: Public, unauthenticated contract discovery documents for this API.
 security:
@@ -1117,6 +1121,105 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/RateLimited'
+  /owner/webhook-addresses:
+    get:
+      operationId: ownerListWebhookAddresses
+      tags: [Webhooks]
+      x-scope: webhooks:read
+      summary: List watched Solana addresses
+      description: |
+        Returns every Solana address this organization is watching for
+        `address.transfer.confirmed` and `address.transfer.finalized`
+        webhooks. Chain is always Solana (`chain_id` 900). The organization
+        comes from the API key. At most 512 addresses are stored
+        (`B2B_WEBHOOK_ADDRESS_CAP`).
+      responses:
+        '200':
+          description: Watched addresses, oldest first.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/WebhookAddressList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+    post:
+      operationId: ownerAddWebhookAddress
+      tags: [Webhooks]
+      x-scope: webhooks:write
+      summary: Watch a Solana address
+      description: |
+        Idempotent. Sending the same address again returns the existing row
+        with `created: false` and does not consume the cap. A new address
+        returns `created: true`. Both are HTTP 200. A new address past the
+        cap is `409` with `error` `address_cap`. An address that is not a
+        32-byte base58 Solana public key, including the all-zero key, is
+        `400` with `error` `address_invalid`. The stored value is the
+        canonical base58 public key. SOL and USDC transfers only; other
+        mints are ignored by the indexer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              description: See linked schema.
+              $ref: '#/components/schemas/AddWebhookAddressRequest'
+      responses:
+        '200':
+          description: Existing or newly stored watch.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/WebhookAddressAdded'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /owner/webhook-addresses/{address}:
+    delete:
+      operationId: ownerDeleteWebhookAddress
+      tags: [Webhooks]
+      x-scope: webhooks:write
+      summary: Stop watching one Solana address
+      description: |
+        Removes one address from this organization's watch list. There is
+        no remove-all operation. If the address is not currently watched,
+        the response is still HTTP 200 with `deleted: false`.
+      parameters:
+        - $ref: '#/components/parameters/SolanaAddress'
+      responses:
+        '200':
+          description: The address is no longer watched.
+          content:
+            application/json:
+              schema:
+                description: See linked schema.
+                $ref: '#/components/schemas/WebhookAddressDeleted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
 components:
   securitySchemes:
     OwnerApiKey:
@@ -1154,6 +1257,13 @@ components:
       description: The fully-qualified hostname of the whitelabel domain, lowercased.
       schema: { type: string }
       example: api.yourbrand.com
+    SolanaAddress:
+      name: address
+      in: path
+      required: true
+      description: Canonical base58 Solana public key to stop watching.
+      schema: { type: string }
+      example: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
     ChainIDFilter:
       name: chain_id
       in: query
@@ -1198,7 +1308,85 @@ components:
           schema:
             description: See linked schema.
             $ref: '#/components/schemas/Error'
+    Conflict:
+      description: The request conflicts with a limit or an existing row, such as the 512-address watch cap (`address_cap`).
+      content:
+        application/json:
+          schema:
+            description: See linked schema.
+            $ref: '#/components/schemas/Error'
+    Unavailable:
+      description: The watch-list store is not configured on this deployment (`webhooks_unconfigured`).
+      content:
+        application/json:
+          schema:
+            description: See linked schema.
+            $ref: '#/components/schemas/Error'
   schemas:
+    WebhookAddress:
+      type: object
+      description: One Solana address this organization watches for SOL and USDC transfer webhooks.
+      required: [address, chain_id, created_at]
+      properties:
+        address:
+          type: string
+          description: Canonical base58 Solana public key.
+          example: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+        chain_id:
+          type: integer
+          description: Chain id. Watched addresses are Solana only, so this is always 900.
+          example: 900
+        created_at:
+          type: string
+          format: date-time
+          description: RFC 3339 time the address was first stored for this organization.
+    WebhookAddressList:
+      type: object
+      description: Watched Solana addresses for the organization bound to the API key, oldest first.
+      required: [addresses]
+      properties:
+        addresses:
+          type: array
+          description: Watched addresses. Empty when the organization is watching none.
+          items:
+            description: One watched Solana address.
+            $ref: '#/components/schemas/WebhookAddress'
+    AddWebhookAddressRequest:
+      type: object
+      description: Body for adding one Solana address to the watch list.
+      required: [address]
+      properties:
+        address:
+          type: string
+          description: Base58 Solana public key. Stored in canonical form. The all-zero key is rejected.
+          example: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+    WebhookAddressAdded:
+      type: object
+      description: The stored watch after an add. `created` is false when the address was already on the list.
+      required: [address, chain_id, created_at, created]
+      properties:
+        address:
+          type: string
+          description: Canonical base58 Solana public key that is now watched.
+        chain_id:
+          type: integer
+          description: Chain id. Always 900.
+          example: 900
+        created_at:
+          type: string
+          format: date-time
+          description: RFC 3339 time the address was first stored.
+        created:
+          type: boolean
+          description: True when this call inserted the row. False when the address was already watched and the cap was not consumed.
+    WebhookAddressDeleted:
+      type: object
+      description: Result of removing one address. Missing addresses still return HTTP 200.
+      required: [deleted]
+      properties:
+        deleted:
+          type: boolean
+          description: True when a row was removed. False when the address was not on the list.
     Error:
       type: object
       description: The single error envelope used by every non-2xx response from this API.
@@ -1245,7 +1433,7 @@ components:
           description: The scopes this key carries. See the Scopes table in the API description.
           items:
             type: string
-            enum: [users:read, trades:read, analytics:read, endpoints:read, endpoints:write]
+            enum: [users:read, trades:read, analytics:read, endpoints:read, endpoints:write, webhooks:read, webhooks:write]
           minItems: 1
         expires_at:
           type: [string, 'null']
