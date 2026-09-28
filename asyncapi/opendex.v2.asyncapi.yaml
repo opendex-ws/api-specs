@@ -50,6 +50,8 @@ channels:
         $ref: '#/components/messages/ReferralCommissionsSummaryEvent'
       RewardsClaimedConfirmedEvent:
         $ref: '#/components/messages/RewardsClaimedConfirmedEvent'
+      ScannerOverviewEvent:
+        $ref: '#/components/messages/ScannerOverviewEvent'
       ScannerTokensEvent:
         $ref: '#/components/messages/ScannerTokensEvent'
       ScannerUpdateEvent:
@@ -122,10 +124,10 @@ channels:
         $ref: '#/components/messages/UserBalanceEvent'
       UserDepositEvent:
         $ref: '#/components/messages/UserDepositEvent'
-      UserWithdrawEvent:
-        $ref: '#/components/messages/UserWithdrawEvent'
       UserFavouritesEvent:
         $ref: '#/components/messages/UserFavouritesEvent'
+      UserPnlEvent:
+        $ref: '#/components/messages/UserPnlEvent'
       UserProfileEvent:
         $ref: '#/components/messages/UserProfileEvent'
       UserSettingsEvent:
@@ -144,6 +146,8 @@ channels:
         $ref: '#/components/messages/UserTradesEvent'
       UserTradesUpdateEvent:
         $ref: '#/components/messages/UserTradesUpdateEvent'
+      UserWithdrawEvent:
+        $ref: '#/components/messages/UserWithdrawEvent'
       WatchlistCallEvent:
         $ref: '#/components/messages/WatchlistCallEvent'
       WatchlistFeedEvent:
@@ -281,6 +285,12 @@ operations:
       $ref: '#/channels/websocketV2'
     messages:
     - $ref: '#/channels/websocketV2/messages/RewardsClaimedConfirmedEvent'
+  receiveScannerOverviewEvent:
+    action: receive
+    channel:
+      $ref: '#/channels/websocketV2'
+    messages:
+    - $ref: '#/channels/websocketV2/messages/ScannerOverviewEvent'
   receiveScannerTokensEvent:
     action: receive
     channel:
@@ -467,18 +477,18 @@ operations:
       $ref: '#/channels/websocketV2'
     messages:
     - $ref: '#/channels/websocketV2/messages/UserDepositEvent'
-  receiveUserWithdrawEvent:
-    action: receive
-    channel:
-      $ref: '#/channels/websocketV2'
-    messages:
-    - $ref: '#/channels/websocketV2/messages/UserWithdrawEvent'
   receiveUserFavouritesEvent:
     action: receive
     channel:
       $ref: '#/channels/websocketV2'
     messages:
     - $ref: '#/channels/websocketV2/messages/UserFavouritesEvent'
+  receiveUserPnlEvent:
+    action: receive
+    channel:
+      $ref: '#/channels/websocketV2'
+    messages:
+    - $ref: '#/channels/websocketV2/messages/UserPnlEvent'
   receiveUserProfileEvent:
     action: receive
     channel:
@@ -533,6 +543,12 @@ operations:
       $ref: '#/channels/websocketV2'
     messages:
     - $ref: '#/channels/websocketV2/messages/UserTradesUpdateEvent'
+  receiveUserWithdrawEvent:
+    action: receive
+    channel:
+      $ref: '#/channels/websocketV2'
+    messages:
+    - $ref: '#/channels/websocketV2/messages/UserWithdrawEvent'
   receiveWatchlistCallEvent:
     action: receive
     channel:
@@ -975,6 +991,31 @@ components:
         - event
         - data
         title: WsBroadcastRewardsClaimedConfirmedEvent
+        type: object
+    ScannerOverviewEvent:
+      name: ScannerOverviewEvent
+      title: ScannerOverviewEvent
+      x-drakula-event-type: SCANNER_OVERVIEW
+      payload:
+        description: Broadcast frame for `SCANNER_OVERVIEW` events on the v2 WebSocket.
+        properties:
+          data:
+            $ref: '#/components/schemas/MarketOverviewResponse'
+          event:
+            description: Wire event name for this broadcast frame.
+            enum:
+            - SCANNER_OVERVIEW
+            type: string
+          topic:
+            description: Scanner market-statistics snapshot topic.
+            enum:
+            - scanner:stats
+            type: string
+        required:
+        - topic
+        - event
+        - data
+        title: WsBroadcastScannerOverviewEvent
         type: object
     ScannerTokensEvent:
       name: ScannerTokensEvent
@@ -1760,13 +1801,25 @@ components:
       title: UserDepositEvent
       x-drakula-event-type: USER_DEPOSIT
       payload:
-        $ref: '#/components/schemas/WsBroadcastUserDepositEvent'
-    UserWithdrawEvent:
-      name: UserWithdrawEvent
-      title: UserWithdrawEvent
-      x-drakula-event-type: USER_WITHDRAW
-      payload:
-        $ref: '#/components/schemas/WsBroadcastUserWithdrawEvent'
+        description: Broadcast frame for `USER_DEPOSIT` events on the v2 WebSocket.
+        properties:
+          data:
+            $ref: '#/components/schemas/WsUserTransfer'
+          event:
+            description: Wire event name for this broadcast frame.
+            enum:
+            - USER_DEPOSIT
+            type: string
+          topic:
+            description: Authenticated user topic emitted as `user:{userId}`.
+            pattern: ^user:[0-9a-fA-F-]{36}$
+            type: string
+        required:
+        - topic
+        - event
+        - data
+        title: WsBroadcastUserDepositEvent
+        type: object
     UserFavouritesEvent:
       name: UserFavouritesEvent
       title: UserFavouritesEvent
@@ -1794,6 +1847,34 @@ components:
         - data
         - meta
         title: WsBroadcastUserFavouritesEvent
+        type: object
+    UserPnlEvent:
+      name: UserPnlEvent
+      title: UserPnlEvent
+      x-drakula-event-type: USER_PNL
+      payload:
+        description: Broadcast frame for `USER_PNL` events on the v2 WebSocket.
+        properties:
+          data:
+            $ref: '#/components/schemas/UserPnlResponse'
+          event:
+            description: Wire event name for this broadcast frame.
+            enum:
+            - USER_PNL
+            type: string
+          meta:
+            $ref: '#/components/schemas/LivecursorWindowMeta'
+          topic:
+            description: Private live user P&L snapshot.
+            enum:
+            - USER_PNL
+            type: string
+        required:
+        - topic
+        - event
+        - data
+        - meta
+        title: WsBroadcastUserPnlEvent
         type: object
     UserProfileEvent:
       name: UserProfileEvent
@@ -2127,6 +2208,30 @@ components:
         - data
         - meta
         title: WsBroadcastTradeCancelConfirmedUserTradesUpdateEvent
+        type: object
+    UserWithdrawEvent:
+      name: UserWithdrawEvent
+      title: UserWithdrawEvent
+      x-drakula-event-type: USER_WITHDRAW
+      payload:
+        description: Broadcast frame for `USER_WITHDRAW` events on the v2 WebSocket.
+        properties:
+          data:
+            $ref: '#/components/schemas/WsUserTransfer'
+          event:
+            description: Wire event name for this broadcast frame.
+            enum:
+            - USER_WITHDRAW
+            type: string
+          topic:
+            description: Authenticated user topic emitted as `user:{userId}`.
+            pattern: ^user:[0-9a-fA-F-]{36}$
+            type: string
+        required:
+        - topic
+        - event
+        - data
+        title: WsBroadcastUserWithdrawEvent
         type: object
     WatchlistCallEvent:
       name: WatchlistCallEvent
@@ -2587,7 +2692,7 @@ components:
               oneOf:
               - allOf:
                 - $ref: '#/components/schemas/PendingTradeSwapRow'
-                - $ref: '#/components/schemas/BuyCore'
+                - $ref: '#/components/schemas/PendingBuyCore'
                 - properties:
                     side:
                       enum:
@@ -2599,10 +2704,13 @@ components:
               - allOf:
                 - $ref: '#/components/schemas/PendingTradeSwapRow'
                 - properties:
+                    origin:
+                      $ref: '#/components/schemas/PendingSellOrigin'
                     pct:
                       $ref: '#/components/schemas/Percent'
                   required:
                   - pct
+                  - origin
                   type: object
                 - properties:
                     side:
@@ -2729,6 +2837,31 @@ components:
       description: 'Blockchain address, in Solana base58 format.'
       example: So11111111111111111111111111111111111111112
       type: string
+    AddressPnl:
+      allOf:
+      - $ref: '#/components/schemas/PnlMetrics'
+      - properties:
+          address:
+            type: string
+          chain:
+            $ref: '#/components/schemas/Chain'
+        required:
+        - chain
+        - address
+        type: object
+    AddressPnlSeries:
+      properties:
+        address:
+          type: string
+        chain:
+          $ref: '#/components/schemas/Chain'
+        series:
+          $ref: '#/components/schemas/PnlSeries'
+      required:
+      - chain
+      - address
+      - series
+      type: object
     AffiliateFeeAssetBalance:
       description: One asset's available and reserved affiliate fee balance.
       properties:
@@ -4177,7 +4310,7 @@ components:
               type: array
           type: object
         request:
-          $ref: '#/components/schemas/BuyIntent'
+          $ref: '#/components/schemas/PendingBuyIntent'
         swapIds:
           items:
             format: int64
@@ -4484,6 +4617,25 @@ components:
       enum:
       - SOL
       type: string
+    ChainPnl:
+      allOf:
+      - $ref: '#/components/schemas/PnlMetrics'
+      - properties:
+          chain:
+            $ref: '#/components/schemas/Chain'
+        required:
+        - chain
+        type: object
+    ChainPnlSeries:
+      properties:
+        chain:
+          $ref: '#/components/schemas/Chain'
+        series:
+          $ref: '#/components/schemas/PnlSeries'
+      required:
+      - chain
+      - series
+      type: object
     ChangePercent:
       type: number
     ChartMarker:
@@ -4891,6 +5043,7 @@ components:
         address:
           $ref: '#/components/schemas/Address'
         assets:
+          description: Complete current holdings. Assets with a zero balance are omitted.
           items:
             $ref: '#/components/schemas/WalletAsset'
           type: array
@@ -5272,6 +5425,31 @@ components:
       - highestMarketCapTokenAddress
       - highestMarketCapTokenName
       - highestMarketCapTokenSymbol
+      type: object
+    DexProtocolPnl:
+      allOf:
+      - $ref: '#/components/schemas/PnlMetrics'
+      - properties:
+          chain:
+            $ref: '#/components/schemas/Chain'
+          platformType:
+            $ref: '#/components/schemas/PlatformType'
+        required:
+        - chain
+        - platformType
+        type: object
+    DexProtocolPnlSeries:
+      properties:
+        chain:
+          $ref: '#/components/schemas/Chain'
+        platformType:
+          $ref: '#/components/schemas/PlatformType'
+        series:
+          $ref: '#/components/schemas/PnlSeries'
+      required:
+      - chain
+      - platformType
+      - series
       type: object
     DialogChatSerde:
       properties:
@@ -6097,6 +6275,31 @@ components:
         - totalCount
         type: object
       description: Response of `GET /v2/wallets/labeled`.
+    LaunchpadPnl:
+      allOf:
+      - $ref: '#/components/schemas/PnlMetrics'
+      - properties:
+          chain:
+            $ref: '#/components/schemas/Chain'
+          platformType:
+            $ref: '#/components/schemas/PlatformType'
+        required:
+        - chain
+        - platformType
+        type: object
+    LaunchpadPnlSeries:
+      properties:
+        chain:
+          $ref: '#/components/schemas/Chain'
+        platformType:
+          $ref: '#/components/schemas/PlatformType'
+        series:
+          $ref: '#/components/schemas/PnlSeries'
+      required:
+      - chain
+      - platformType
+      - series
+      type: object
     ListCallContext:
       properties:
         trigger:
@@ -6135,6 +6338,7 @@ components:
         address:
           $ref: '#/components/schemas/Address'
         assets:
+          description: Complete current holdings. Assets with a zero balance are omitted.
           items:
             $ref: '#/components/schemas/WalletAsset'
           type: array
@@ -6144,6 +6348,362 @@ components:
       - address
       - assets
       - totalValueUsd
+      type: object
+    MarketOverviewActivity:
+      properties:
+        buyTransactions:
+          $ref: '#/components/schemas/MarketOverviewCountSeries'
+        buyVolumeUsd:
+          $ref: '#/components/schemas/MarketOverviewDecimalSeries'
+        buyVolumeUsdChangePct:
+          $ref: '#/components/schemas/MarketOverviewChangeSeries'
+        sellTransactions:
+          $ref: '#/components/schemas/MarketOverviewCountSeries'
+        sellVolumeUsd:
+          $ref: '#/components/schemas/MarketOverviewDecimalSeries'
+        sellVolumeUsdChangePct:
+          $ref: '#/components/schemas/MarketOverviewChangeSeries'
+        traders:
+          $ref: '#/components/schemas/MarketOverviewCountSeries'
+          description: Approximate unique-wallet count. The estimator has about 6.5% expected error.
+        tradersChangePct:
+          $ref: '#/components/schemas/MarketOverviewChangeSeries'
+        transactions:
+          $ref: '#/components/schemas/MarketOverviewCountSeries'
+          description: Swap-event counts, split into buys and sells below.
+        transactionsChangePct:
+          $ref: '#/components/schemas/MarketOverviewChangeSeries'
+        volumeUsd:
+          $ref: '#/components/schemas/MarketOverviewDecimalSeries'
+          description: Buy volume plus sell volume, in USD.
+        volumeUsdChangePct:
+          $ref: '#/components/schemas/MarketOverviewChangeSeries'
+      required:
+      - transactions
+      - transactionsChangePct
+      - traders
+      - tradersChangePct
+      - volumeUsd
+      - volumeUsdChangePct
+      - buyVolumeUsd
+      - buyVolumeUsdChangePct
+      - sellVolumeUsd
+      - sellVolumeUsdChangePct
+      - buyTransactions
+      - sellTransactions
+      type: object
+    MarketOverviewAggregate:
+      properties:
+        activity:
+          $ref: '#/components/schemas/MarketOverviewActivity'
+        tokenStats:
+          $ref: '#/components/schemas/MarketOverviewTokenStats'
+      required:
+      - activity
+      - tokenStats
+      type: object
+    MarketOverviewChainGroup:
+      properties:
+        activity:
+          $ref: '#/components/schemas/MarketOverviewActivity'
+        chain:
+          enum:
+          - SOL
+          type: string
+        tokenStats:
+          $ref: '#/components/schemas/MarketOverviewTokenStats'
+      required:
+      - chain
+      - activity
+      - tokenStats
+      type: object
+    MarketOverviewChangeSeries:
+      description: Percentage change from the preceding equal-length window. Zero when the previous value is zero.
+      properties:
+        1h:
+          properties:
+            changePercent:
+              description: Display-scaled public-unit JSON number token for this relative field.
+              type: number
+          required:
+          - changePercent
+          type: object
+        24h:
+          properties:
+            changePercent:
+              description: Display-scaled public-unit JSON number token for this relative field.
+              type: number
+          required:
+          - changePercent
+          type: object
+        5m:
+          properties:
+            changePercent:
+              description: Display-scaled public-unit JSON number token for this relative field.
+              type: number
+          required:
+          - changePercent
+          type: object
+        6h:
+          properties:
+            changePercent:
+              description: Display-scaled public-unit JSON number token for this relative field.
+              type: number
+          required:
+          - changePercent
+          type: object
+      required:
+      - 5m
+      - 1h
+      - 6h
+      - 24h
+      type: object
+    MarketOverviewCountSeries:
+      properties:
+        1h:
+          format: int64
+          minimum: 0
+          type: integer
+        24h:
+          format: int64
+          minimum: 0
+          type: integer
+        5m:
+          format: int64
+          minimum: 0
+          type: integer
+        6h:
+          format: int64
+          minimum: 0
+          type: integer
+      required:
+      - 5m
+      - 1h
+      - 6h
+      - 24h
+      type: object
+    MarketOverviewDecimalSeries:
+      properties:
+        1h:
+          properties:
+            value:
+              description: Display-scaled plain JSON number token for this decimal field.
+              type: number
+            valueStr:
+              description: Exact unrounded plain decimal string for this decimal field.
+              type: string
+          required:
+          - value
+          - valueStr
+          type: object
+        24h:
+          properties:
+            value:
+              description: Display-scaled plain JSON number token for this decimal field.
+              type: number
+            valueStr:
+              description: Exact unrounded plain decimal string for this decimal field.
+              type: string
+          required:
+          - value
+          - valueStr
+          type: object
+        5m:
+          properties:
+            value:
+              description: Display-scaled plain JSON number token for this decimal field.
+              type: number
+            valueStr:
+              description: Exact unrounded plain decimal string for this decimal field.
+              type: string
+          required:
+          - value
+          - valueStr
+          type: object
+        6h:
+          properties:
+            value:
+              description: Display-scaled plain JSON number token for this decimal field.
+              type: number
+            valueStr:
+              description: Exact unrounded plain decimal string for this decimal field.
+              type: string
+          required:
+          - value
+          - valueStr
+          type: object
+      required:
+      - 5m
+      - 1h
+      - 6h
+      - 24h
+      type: object
+    MarketOverviewNamedActivity:
+      properties:
+        activity:
+          $ref: '#/components/schemas/MarketOverviewActivity'
+        id:
+          type: string
+      required:
+      - id
+      - activity
+      type: object
+    MarketOverviewNamedAggregate:
+      properties:
+        activity:
+          $ref: '#/components/schemas/MarketOverviewActivity'
+        id:
+          type: string
+        tokenStats:
+          $ref: '#/components/schemas/MarketOverviewTokenStats'
+      required:
+      - id
+      - activity
+      - tokenStats
+      type: object
+    MarketOverviewResponse:
+      description: Market statistics for the 5m, 1h, 6h, and 24h windows.
+      properties:
+        byChain:
+          items:
+            $ref: '#/components/schemas/MarketOverviewChainGroup'
+          type: array
+        byDexProtocol:
+          items:
+            $ref: '#/components/schemas/MarketOverviewNamedActivity'
+          type: array
+        byLaunchpad:
+          description: Activity and token lifecycle counts grouped by launchpad.
+          items:
+            $ref: '#/components/schemas/MarketOverviewNamedAggregate'
+          type: array
+        byTradingPlatform:
+          description: Recognized execution programs only; unattributed activity remains in totals.
+          items:
+            $ref: '#/components/schemas/MarketOverviewNamedActivity'
+          type: array
+        feeEstimates:
+          additionalProperties:
+            oneOf:
+            - type: 'null'
+            - description: Recommended swap fee, refreshed every five seconds from cached raw samples.
+              properties:
+                combinedFee:
+                  properties:
+                    native:
+                      description: Native/quote-token value.
+                      type: number
+                    nativeStr:
+                      description: Exact string representation of the native/quote-token value.
+                      type: string
+                    usd:
+                      description: USD value.
+                      type: number
+                    usdStr:
+                      description: Exact string representation of the USD value.
+                      type: string
+                  required:
+                  - usd
+                  - usdStr
+                  - native
+                  - nativeStr
+                  type: object
+                priorityFee:
+                  properties:
+                    native:
+                      description: Native/quote-token value.
+                      type: number
+                    nativeStr:
+                      description: Exact string representation of the native/quote-token value.
+                      type: string
+                    usd:
+                      description: USD value.
+                      type: number
+                    usdStr:
+                      description: Exact string representation of the USD value.
+                      type: string
+                  required:
+                  - usd
+                  - usdStr
+                  - native
+                  - nativeStr
+                  type: object
+                validatorTip:
+                  description: Validator tip, also called a bribe. A valid zero is not missing data.
+                  properties:
+                    native:
+                      description: |-
+                        Validator tip, also called a bribe. A valid zero is not missing data.
+
+                        Native/quote-token value.
+                      type: number
+                    nativeStr:
+                      description: |-
+                        Validator tip, also called a bribe. A valid zero is not missing data.
+
+                        Exact string representation of the native/quote-token value.
+                      type: string
+                    usd:
+                      description: |-
+                        Validator tip, also called a bribe. A valid zero is not missing data.
+
+                        USD value.
+                      type: number
+                    usdStr:
+                      description: |-
+                        Validator tip, also called a bribe. A valid zero is not missing data.
+
+                        Exact string representation of the USD value.
+                      type: string
+                  required:
+                  - usd
+                  - usdStr
+                  - native
+                  - nativeStr
+                  type: object
+              required:
+              - combinedFee
+              - priorityFee
+              - validatorTip
+              type: object
+          description: AUTO fees by chain. Null means unavailable, unsupported, or stale; zero tips are valid.
+          propertyNames:
+            type: string
+          type: object
+        migrationEstimates:
+          description: Rolling 24-hour migration estimates, separate from trading activity.
+          items:
+            $ref: '#/components/schemas/ScannerMigrationEstimate'
+          type: array
+        total:
+          $ref: '#/components/schemas/MarketOverviewAggregate'
+          description: All supported market activity.
+      required:
+      - feeEstimates
+      - migrationEstimates
+      - total
+      - byChain
+      - byLaunchpad
+      - byDexProtocol
+      - byTradingPlatform
+      type: object
+    MarketOverviewTokenStats:
+      properties:
+        created:
+          $ref: '#/components/schemas/MarketOverviewCountSeries'
+          description: Distinct tokens created during each window.
+        createdChangePct:
+          $ref: '#/components/schemas/MarketOverviewChangeSeries'
+        migrations:
+          $ref: '#/components/schemas/MarketOverviewCountSeries'
+          description: Distinct migration destinations, attributed to their source launchpad.
+        migrationsChangePct:
+          $ref: '#/components/schemas/MarketOverviewChangeSeries'
+      required:
+      - created
+      - createdChangePct
+      - migrations
+      - migrationsChangePct
       type: object
     MarketplaceActivity:
       enum:
@@ -7003,6 +7563,138 @@ components:
       type: object
     PartnerJwtSigninRequest:
       type: object
+    PendingBuyCore:
+      properties:
+        amount:
+          oneOf:
+          - properties:
+              type:
+                enum:
+                - NATIVE
+                type: string
+              value:
+                $ref: '#/components/schemas/PositiveDecimalNumber'
+            required:
+            - value
+            - type
+            type: object
+          - properties:
+              type:
+                enum:
+                - USD
+                type: string
+              value:
+                $ref: '#/components/schemas/PositiveDecimalNumber'
+            required:
+            - value
+            - type
+            type: object
+        buyWith:
+          description: |-
+            The currency the user funds a trade with.
+
+            Defaults to `Native` so every existing client keeps paying with the chain
+            peg. `Fiat` is only supported on chains with a known USD stablecoin.
+          enum:
+          - NATIVE
+          - FIAT
+          type: string
+        strategy:
+          $ref: '#/components/schemas/PendingBuyStrategy'
+      required:
+      - amount
+      - strategy
+      - buyWith
+      type: object
+    PendingBuyIntent:
+      allOf:
+      - $ref: '#/components/schemas/PendingBuyCore'
+      - properties:
+          pairAddress:
+            description: 'Blockchain address, in Solana base58 format.'
+            example: So11111111111111111111111111111111111111112
+            type: string
+        type: object
+    PendingBuyStrategy:
+      oneOf:
+      - properties:
+          type:
+            enum:
+            - MARKET
+            type: string
+        required:
+        - type
+        type: object
+      - properties:
+          dipPct:
+            $ref: '#/components/schemas/ChangePercent'
+          trigger:
+            $ref: '#/components/schemas/PendingTradeSwapTrigger'
+          type:
+            enum:
+            - DIP
+            type: string
+        required:
+        - dipPct
+        - trigger
+        - type
+        type: object
+      - properties:
+          priceUsd:
+            $ref: '#/components/schemas/PositiveDecimalNumber'
+          trigger:
+            $ref: '#/components/schemas/PendingTradeSwapTrigger'
+          type:
+            enum:
+            - LIMIT
+            type: string
+        required:
+        - priceUsd
+        - trigger
+        - type
+        type: object
+    PendingSellOrigin:
+      oneOf:
+      - properties:
+          type:
+            enum:
+            - UNLINKED
+            type: string
+        required:
+        - type
+        type: object
+      - allOf:
+        - $ref: '#/components/schemas/TradeSwapTargetSnapshot'
+        - properties:
+            trigger:
+              $ref: '#/components/schemas/PendingTradeSwapTrigger'
+          required:
+          - trigger
+          type: object
+        - properties:
+            type:
+              enum:
+              - TARGET
+              type: string
+          required:
+          - type
+          type: object
+    PendingTradeSwapBase:
+      properties:
+        id:
+          format: int64
+          type: integer
+        pairAddress:
+          description: 'Blockchain address, in Solana base58 format.'
+          example: So11111111111111111111111111111111111111112
+          type: string
+        walletAddress:
+          $ref: '#/components/schemas/Address'
+      required:
+      - id
+      - walletAddress
+      - pairAddress
+      type: object
     PendingTradeSwapLifecycle:
       discriminator:
         propertyName: status
@@ -7036,7 +7728,7 @@ components:
         type: object
     PendingTradeSwapRow:
       allOf:
-      - $ref: '#/components/schemas/TradeSwapBase'
+      - $ref: '#/components/schemas/PendingTradeSwapBase'
       - properties:
           createdAt:
             $ref: '#/components/schemas/ReadableTimestamp'
@@ -7055,6 +7747,73 @@ components:
         - status
         - createdAt
         type: object
+    PendingTradeSwapTrigger:
+      oneOf:
+      - properties:
+          status:
+            enum:
+            - AVAILABLE
+            type: string
+          value:
+            $ref: '#/components/schemas/PendingTradeSwapTriggerValue'
+        required:
+        - value
+        - status
+        type: object
+      - properties:
+          status:
+            enum:
+            - UNAVAILABLE
+            type: string
+        required:
+        - status
+        type: object
+    PendingTradeSwapTriggerValue:
+      properties:
+        marketCap:
+          properties:
+            native:
+              description: Native/quote-token value.
+              type: number
+            nativeStr:
+              description: Exact string representation of the native/quote-token value.
+              type: string
+            usd:
+              description: USD value.
+              type: number
+            usdStr:
+              description: Exact string representation of the USD value.
+              type: string
+          required:
+          - usd
+          - usdStr
+          - native
+          - nativeStr
+          type: object
+        price:
+          properties:
+            native:
+              description: Native/quote-token value.
+              type: number
+            nativeStr:
+              description: Exact string representation of the native/quote-token value.
+              type: string
+            usd:
+              description: USD value.
+              type: number
+            usdStr:
+              description: Exact string representation of the USD value.
+              type: string
+          required:
+          - usd
+          - usdStr
+          - native
+          - nativeStr
+          type: object
+      required:
+      - price
+      - marketCap
+      type: object
     Percent:
       type: number
     PlatformInfo:
@@ -7079,10 +7838,18 @@ components:
           - METEORA_BONDING_CURVE
           - METEORA_DYN_V2
           - HEAVEN
+          - WHIRLPOOL
+          - UNISWAP_V4
+          - FLAP
+          - PONS
           - LETS_BONK
           - BELIEVE
           - BAGS
           - PRINTR
+          - STONKFUN
+          - OTCDESKS
+          - PURPS
+          - EMBERCURVE
           type: string
       required:
       - platformType
@@ -7103,11 +7870,187 @@ components:
       - METEORA_BONDING_CURVE
       - METEORA_DYN_V2
       - HEAVEN
+      - WHIRLPOOL
+      - UNISWAP_V4
+      - FLAP
+      - PONS
       - LETS_BONK
       - BELIEVE
       - BAGS
       - PRINTR
+      - STONKFUN
+      - OTCDESKS
+      - PURPS
+      - EMBERCURVE
       type: string
+    PnlHistory:
+      properties:
+        bucketSeconds:
+          format: int64
+          type: integer
+        byAddress:
+          items:
+            $ref: '#/components/schemas/AddressPnlSeries'
+          type: array
+        byChain:
+          items:
+            $ref: '#/components/schemas/ChainPnlSeries'
+          type: array
+        byDexProtocol:
+          items:
+            $ref: '#/components/schemas/DexProtocolPnlSeries'
+          type: array
+        byLaunchpad:
+          items:
+            $ref: '#/components/schemas/LaunchpadPnlSeries'
+          type: array
+        gaps:
+          items:
+            $ref: '#/components/schemas/PnlHistoryGap'
+          type: array
+        timestamps:
+          items:
+            type: string
+          type: array
+        totals:
+          $ref: '#/components/schemas/PnlSeries'
+        unattributed:
+          $ref: '#/components/schemas/PnlUnattributedSeries'
+      required:
+      - bucketSeconds
+      - timestamps
+      - totals
+      - byChain
+      - byAddress
+      - byLaunchpad
+      - byDexProtocol
+      - unattributed
+      - gaps
+      type: object
+    PnlHistoryGap:
+      description: An interval without a valid historical active valuation. Times are RFC 3339.
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+      required:
+      - from
+      - to
+      type: object
+    PnlMetrics:
+      description: USD profit split by whether the position is still open.
+      properties:
+        activePnlChgPct:
+          format: double
+          type:
+          - number
+          - 'null'
+        activePnlUsd:
+          format: double
+          type: number
+        closedPnlChgPct:
+          format: double
+          type:
+          - number
+          - 'null'
+        closedPnlUsd:
+          format: double
+          type: number
+        totalPnlChgPct:
+          format: double
+          type:
+          - number
+          - 'null'
+        totalPnlUsd:
+          format: double
+          type: number
+      required:
+      - activePnlUsd
+      - closedPnlUsd
+      - totalPnlUsd
+      type: object
+    PnlRange:
+      description: Supported rolling closure ranges. Open positions retain their lifetime P&L.
+      enum:
+      - 24h
+      - 7d
+      - 30d
+      type: string
+    PnlSeries:
+      description: Metric arrays aligned with the history timestamps.
+      properties:
+        activePnlUsd:
+          items:
+            format: double
+            type: number
+          type: array
+        closedPnlUsd:
+          items:
+            format: double
+            type: number
+          type: array
+        totalPnlUsd:
+          items:
+            format: double
+            type: number
+          type: array
+      required:
+      - activePnlUsd
+      - closedPnlUsd
+      - totalPnlUsd
+      type: object
+    PnlTotals:
+      properties:
+        activePnlChgPct:
+          format: double
+          type:
+          - number
+          - 'null'
+        activePnlUsd:
+          format: double
+          type: number
+        closedPnlChgPct:
+          format: double
+          type:
+          - number
+          - 'null'
+        closedPnlUsd:
+          format: double
+          type: number
+        totalPnlChgPct:
+          format: double
+          type:
+          - number
+          - 'null'
+        totalPnlUsd:
+          format: double
+          type: number
+      required:
+      - activePnlUsd
+      - closedPnlUsd
+      - totalPnlUsd
+      type: object
+    PnlUnattributed:
+      properties:
+        dexProtocol:
+          $ref: '#/components/schemas/PnlMetrics'
+        launchpad:
+          $ref: '#/components/schemas/PnlMetrics'
+      required:
+      - launchpad
+      - dexProtocol
+      type: object
+    PnlUnattributedSeries:
+      properties:
+        dexProtocol:
+          $ref: '#/components/schemas/PnlSeries'
+        launchpad:
+          $ref: '#/components/schemas/PnlSeries'
+      required:
+      - launchpad
+      - dexProtocol
+      type: object
     PositiveDecimalNumber:
       exclusiveMinimum: 0
       type: number
@@ -7513,10 +8456,10 @@ components:
           description: Case-insensitive substring of the handle.
           type: string
         sources:
-          description: Platforms to include (`FOMO`, `PUMPFUN`, `KOL`), comma separated.
-          type:
-          - string
-          - 'null'
+          description: Platforms to include. Accepts `sources[]=FOMO`, repeated `sources=FOMO`, and CSV `sources=FOMO,KOL`.
+          items:
+            type: string
+          type: array
       required:
       - q
       type: object
@@ -8143,6 +9086,32 @@ components:
             - string
             - 'null'
         type: object
+    ScannerMigrationEstimate:
+      properties:
+        chain:
+          enum:
+          - SOL
+          type: string
+        estimatedMigrationMarketCapUsd:
+          anyOf:
+          - description: |-
+              Median of at least three tokens graduated in 24 hours. Uses the last source-curve
+              USD trade and supply available at capture; not a fixed protocol threshold.
+            type: number
+          - type: 'null'
+        estimatedMigrationMarketCapUsdStr:
+          anyOf:
+          - description: Exact unrounded decimal string, or null when the estimate is unavailable.
+            type: string
+          - type: 'null'
+        id:
+          type: string
+      required:
+      - chain
+      - id
+      - estimatedMigrationMarketCapUsd
+      - estimatedMigrationMarketCapUsdStr
+      type: object
     ScannerPageRequest:
       additionalProperties: false
       properties:
@@ -8268,7 +9237,9 @@ components:
           - string
           - 'null'
         lookup:
-          description: Repeatable compact lookup keys, formatted as `CHAIN:ADDRESS`.
+          description: |-
+            Compact lookup keys, formatted as `CHAIN:ADDRESS`. Accepts bracketed,
+            repeated, and CSV `lookup` values.
           items:
             type: string
           type: array
@@ -11145,10 +12116,18 @@ components:
             - METEORA_BONDING_CURVE
             - METEORA_DYN_V2
             - HEAVEN
+            - WHIRLPOOL
+            - UNISWAP_V4
+            - FLAP
+            - PONS
             - LETS_BONK
             - BELIEVE
             - BAGS
             - PRINTR
+            - STONKFUN
+            - OTCDESKS
+            - PURPS
+            - EMBERCURVE
             type: string
           progressPct:
             description: Display-scaled public-unit JSON number token for this relative field.
@@ -11847,10 +12826,18 @@ components:
           - METEORA_BONDING_CURVE
           - METEORA_DYN_V2
           - HEAVEN
+          - WHIRLPOOL
+          - UNISWAP_V4
+          - FLAP
+          - PONS
           - LETS_BONK
           - BELIEVE
           - BAGS
           - PRINTR
+          - STONKFUN
+          - OTCDESKS
+          - PURPS
+          - EMBERCURVE
           type: string
         pairAddress:
           description: 'Blockchain address, in Solana base58 format.'
@@ -11930,6 +12917,7 @@ components:
     TokenMultiQuery:
       properties:
         lookup:
+          description: Token keys to load. Accepts bracketed, repeated, and CSV `lookup` values.
           items:
             $ref: '#/components/schemas/TokenMultiLookupKey'
           type: array
@@ -12508,10 +13496,18 @@ components:
             - METEORA_BONDING_CURVE
             - METEORA_DYN_V2
             - HEAVEN
+            - WHIRLPOOL
+            - UNISWAP_V4
+            - FLAP
+            - PONS
             - LETS_BONK
             - BELIEVE
             - BAGS
             - PRINTR
+            - STONKFUN
+            - OTCDESKS
+            - PURPS
+            - EMBERCURVE
             type: string
           txPlacePercent:
             description: Position of the transaction within its block, when observed by the indexer.
@@ -14386,11 +15382,14 @@ components:
           - 'null'
         sources:
           description: |-
-            Platforms to include (`FOMO`, `PUMPFUN`, `KOL`), comma separated.
-            Omit or leave empty for the global ranking. Labeled-wallet identity is
-            returned on every ranking row, not only when this filter is set.
+            Platforms to include (`FOMO`, `PUMPFUN`, `KOL`). Accepts one value, a
+            comma-separated string, or an array. Omit, use null, or leave empty for
+            the global ranking. Labeled-wallet identity is returned on every ranking
+            row, not only when this filter is set.
+          items:
+            type: string
           type:
-          - string
+          - array
           - 'null'
         timeRange:
           $ref: '#/components/schemas/WalletTimeRange'
@@ -14963,6 +15962,26 @@ components:
       - tradeId
       - swapId
       type: object
+    TransferAddressDetails:
+      properties:
+        address:
+          type: string
+        entityType:
+          enum:
+          - slot
+          - external
+          type: string
+        ownerAddress:
+          type: string
+      required:
+      - address
+      - entityType
+      type: object
+    TransferEntityType:
+      enum:
+      - slot
+      - external
+      type: string
     TrenchesPhase:
       enum:
       - new
@@ -16000,6 +17019,71 @@ components:
           - type: 'null'
           - $ref: '#/components/schemas/FixedPageSource'
       type: object
+    UserPnlParams:
+      additionalProperties: false
+      properties:
+        range:
+          $ref: '#/components/schemas/PnlRange'
+      required:
+      - range
+      type: object
+    UserPnlResponse:
+      description: Full private snapshot, shared by REST and USER_PNL WebSocket messages.
+      properties:
+        activeHistoryComplete:
+          description: True only when the full range has recorded or known-zero active history.
+          type: boolean
+        asOf:
+          description: Time at which this immutable response was built, in RFC 3339.
+          type: string
+        byAddress:
+          items:
+            $ref: '#/components/schemas/AddressPnl'
+          type: array
+        byChain:
+          items:
+            $ref: '#/components/schemas/ChainPnl'
+          type: array
+        byDexProtocol:
+          items:
+            $ref: '#/components/schemas/DexProtocolPnl'
+          type: array
+        byLaunchpad:
+          items:
+            $ref: '#/components/schemas/LaunchpadPnl'
+          type: array
+        from:
+          description: Inclusive start of the selected closure range, in RFC 3339.
+          type: string
+        history:
+          $ref: '#/components/schemas/PnlHistory'
+        historyCoverageFrom:
+          description: Start of recorded active valuations, in RFC 3339.
+          type: string
+        range:
+          $ref: '#/components/schemas/PnlRange'
+        revision:
+          description: Opaque identity of the accounting, price, and clock cut.
+          type: string
+        totals:
+          $ref: '#/components/schemas/PnlTotals'
+        unattributed:
+          $ref: '#/components/schemas/PnlUnattributed'
+      required:
+      - range
+      - from
+      - asOf
+      - revision
+      - historyCoverageFrom
+      - activeHistoryComplete
+      - totals
+      - byChain
+      - byAddress
+      - byLaunchpad
+      - byDexProtocol
+      - unattributed
+      - history
+      type: object
     UserStats:
       description: Aggregated trade statistics grouped by chain plus recent swap activity.
       properties:
@@ -16047,6 +17131,7 @@ components:
     UserWalletBalanceUpdate:
       properties:
         assets:
+          description: Changed asset rows. A zero balance tells clients to remove the asset.
           items:
             $ref: '#/components/schemas/WalletAssetUpdate'
           type: array
@@ -16080,8 +17165,6 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/ManagedWallet'
           propertyNames:
-            enum:
-            - SOL
             type: string
           type: object
         connectedWallets:
@@ -17192,10 +18275,12 @@ components:
       additionalProperties: false
       properties:
         callerIds:
+          description: Caller IDs to include. Accepts bracketed, repeated, and CSV `callerIds` values.
           items:
             type: string
           type: array
         chains:
+          description: Chains to include. Accepts bracketed, repeated, and CSV `chains` values.
           items:
             $ref: '#/components/schemas/Chain'
           type: array
@@ -17247,6 +18332,7 @@ components:
       additionalProperties: false
       properties:
         chains:
+          description: Chains to include. Accepts bracketed, repeated, and CSV `chains` values.
           items:
             $ref: '#/components/schemas/Chain'
           type: array
@@ -17450,6 +18536,7 @@ components:
             type: string
           type: array
         chains:
+          description: Chains to include. Accepts bracketed, repeated, and CSV `chains` values.
           items:
             $ref: '#/components/schemas/Chain'
           type: array
@@ -17873,7 +18960,9 @@ components:
           - string
           - 'null'
         orderBy:
-          $ref: '#/components/schemas/OrderBy'
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/OrderBy'
         performanceScoreMax:
           format: int32
           type:
@@ -17885,7 +18974,9 @@ components:
           - integer
           - 'null'
         rankBy:
-          $ref: '#/components/schemas/RankingRankBy'
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/RankingRankBy'
         timeframe:
           $ref: '#/components/schemas/WatchlistRankingTimeframe'
         totalCallsMax:
@@ -18156,6 +19247,7 @@ components:
       additionalProperties: false
       properties:
         chains:
+          description: Chains to include. Accepts bracketed, repeated, and CSV `chains` values.
           items:
             $ref: '#/components/schemas/Chain'
           type: array
@@ -18559,6 +19651,7 @@ components:
       description: Async broadcast frame emitted after subscribing to v2 WebSocket topics.
       oneOf:
       - $ref: '#/components/schemas/WsBroadcastPegPricesEvent'
+      - $ref: '#/components/schemas/WsBroadcastScannerOverviewEvent'
       - $ref: '#/components/schemas/WsBroadcastFeeEstimateEvent'
       - $ref: '#/components/schemas/WsBroadcastTwitterEventEvent'
       - $ref: '#/components/schemas/WsBroadcastLabeledWalletSwapEvent'
@@ -18578,6 +19671,7 @@ components:
       - $ref: '#/components/schemas/WsBroadcastTokenSafetyEvent'
       - $ref: '#/components/schemas/WsBroadcastTraderRankingEvent'
       - $ref: '#/components/schemas/WsBroadcastTraderOverviewEvent'
+      - $ref: '#/components/schemas/WsBroadcastUserPnlEvent'
       - $ref: '#/components/schemas/WsBroadcastTraderSwapsEvent'
       - $ref: '#/components/schemas/WsBroadcastTraderTokenPnlEvent'
       - $ref: '#/components/schemas/WsBroadcastTraderTokenSwapsEvent'
@@ -18628,6 +19722,8 @@ components:
       - $ref: '#/components/schemas/WsBroadcastTradeSwapQuickConfirmUserTradeUpdateEvent'
       - $ref: '#/components/schemas/WsBroadcastTradeUpdateErrorUserTradeUpdateErrorEvent'
       - $ref: '#/components/schemas/WsBroadcastUserBalanceEvent'
+      - $ref: '#/components/schemas/WsBroadcastUserDepositEvent'
+      - $ref: '#/components/schemas/WsBroadcastUserWithdrawEvent'
       - $ref: '#/components/schemas/WsBroadcastUserTradesEvent'
       - $ref: '#/components/schemas/WsBroadcastUserTgQrLoginEvent'
       - $ref: '#/components/schemas/WsBroadcastUserTgActionEvent'
@@ -18773,6 +19869,27 @@ components:
       - event
       - data
       title: WsBroadcastRewardsClaimedConfirmedEvent
+      type: object
+    WsBroadcastScannerOverviewEvent:
+      description: Broadcast frame for `SCANNER_OVERVIEW` events on the v2 WebSocket.
+      properties:
+        data:
+          $ref: '#/components/schemas/MarketOverviewResponse'
+        event:
+          description: Wire event name for this broadcast frame.
+          enum:
+          - SCANNER_OVERVIEW
+          type: string
+        topic:
+          description: Scanner market-statistics snapshot topic.
+          enum:
+          - scanner:stats
+          type: string
+      required:
+      - topic
+      - event
+      - data
+      title: WsBroadcastScannerOverviewEvent
       type: object
     WsBroadcastScannerTokensEvent:
       description: Broadcast frame for `SCANNER_TOKENS` events on the v2 WebSocket.
@@ -21016,6 +22133,26 @@ components:
       - data
       title: WsBroadcastUserBalanceEvent
       type: object
+    WsBroadcastUserDepositEvent:
+      description: Broadcast frame for `USER_DEPOSIT` events on the v2 WebSocket.
+      properties:
+        data:
+          $ref: '#/components/schemas/WsUserTransfer'
+        event:
+          description: Wire event name for this broadcast frame.
+          enum:
+          - USER_DEPOSIT
+          type: string
+        topic:
+          description: Authenticated user topic emitted as `user:{userId}`.
+          pattern: ^user:[0-9a-fA-F-]{36}$
+          type: string
+      required:
+      - topic
+      - event
+      - data
+      title: WsBroadcastUserDepositEvent
+      type: object
     WsBroadcastUserFavouritesEvent:
       description: Broadcast frame for `USER_FAVOURITES` events on the v2 WebSocket.
       properties:
@@ -21039,6 +22176,30 @@ components:
       - data
       - meta
       title: WsBroadcastUserFavouritesEvent
+      type: object
+    WsBroadcastUserPnlEvent:
+      description: Broadcast frame for `USER_PNL` events on the v2 WebSocket.
+      properties:
+        data:
+          $ref: '#/components/schemas/UserPnlResponse'
+        event:
+          description: Wire event name for this broadcast frame.
+          enum:
+          - USER_PNL
+          type: string
+        meta:
+          $ref: '#/components/schemas/LivecursorWindowMeta'
+        topic:
+          description: Private live user P&L snapshot.
+          enum:
+          - USER_PNL
+          type: string
+      required:
+      - topic
+      - event
+      - data
+      - meta
+      title: WsBroadcastUserPnlEvent
       type: object
     WsBroadcastUserProfileEvent:
       description: Broadcast frame for `USER_PROFILE` events on the v2 WebSocket.
@@ -21177,6 +22338,26 @@ components:
       - data
       - meta
       title: WsBroadcastUserTradesEvent
+      type: object
+    WsBroadcastUserWithdrawEvent:
+      description: Broadcast frame for `USER_WITHDRAW` events on the v2 WebSocket.
+      properties:
+        data:
+          $ref: '#/components/schemas/WsUserTransfer'
+        event:
+          description: Wire event name for this broadcast frame.
+          enum:
+          - USER_WITHDRAW
+          type: string
+        topic:
+          description: Authenticated user topic emitted as `user:{userId}`.
+          pattern: ^user:[0-9a-fA-F-]{36}$
+          type: string
+      required:
+      - topic
+      - event
+      - data
+      title: WsBroadcastUserWithdrawEvent
       type: object
     WsBroadcastWatchlistCallEvent:
       description: Broadcast frame for `WATCHLIST_CALL` events on the v2 WebSocket.
@@ -21511,6 +22692,7 @@ components:
     WsEventType:
       enum:
       - PEG_PRICES
+      - SCANNER_OVERVIEW
       - FEE_ESTIMATE
       - TOKEN_CANDLE
       - TOKEN_DEV_TOKENS
@@ -21556,6 +22738,7 @@ components:
       - TRADE_PRESETS
       - USER_SETTINGS
       - USER_PROFILE
+      - USER_PNL
       - USER_FAVOURITES
       - REFERRAL_CODE
       - REFERRAL_COMMISSIONS_SUMMARY
@@ -21894,6 +23077,7 @@ components:
     WsSubscribeCommand:
       description: Topic-typed subscribe commands. Each variant correlates the wire topic with its accepted params schema.
       oneOf:
+      - $ref: '#/components/schemas/WsSubscribeUserPnlCommand'
       - $ref: '#/components/schemas/WsSubscribePageTerminalCommand'
       - $ref: '#/components/schemas/WsSubscribePageScannerCommand'
       - $ref: '#/components/schemas/WsSubscribePageSearchCommand'
@@ -21949,6 +23133,7 @@ components:
       - $ref: '#/components/schemas/WsSubscribeWalletsThesisCommand'
       - $ref: '#/components/schemas/WsSubscribeWalletsThesisPersonalCommand'
       - $ref: '#/components/schemas/WsSubscribePegPricesCommand'
+      - $ref: '#/components/schemas/WsSubscribeScannerStatsCommand'
       - $ref: '#/components/schemas/WsSubscribeFeeEstimateCommand'
       - $ref: '#/components/schemas/WsSubscribeTokenDevTokensCommand'
       - $ref: '#/components/schemas/WsSubscribeTokenSafetyCommand'
@@ -22282,6 +23467,25 @@ components:
       - topic
       - params
       title: WsSubscribeScannerLookupCommand
+      type: object
+    WsSubscribeScannerStatsCommand:
+      additionalProperties: false
+      description: Subscribe command for `scanner:stats`.
+      properties:
+        requestId:
+          type: string
+        topic:
+          enum:
+          - scanner:stats
+          type: string
+        type:
+          enum:
+          - subscribe
+          type: string
+      required:
+      - type
+      - topic
+      title: WsSubscribeScannerStatsCommand
       type: object
     WsSubscribeScannerTokensCommand:
       additionalProperties: false
@@ -22881,6 +24085,28 @@ components:
       - type
       - topic
       title: WsSubscribeUserFavouritesCommand
+      type: object
+    WsSubscribeUserPnlCommand:
+      additionalProperties: false
+      description: Subscribe command for `USER_PNL`.
+      properties:
+        params:
+          $ref: '#/components/schemas/UserPnlParams'
+        requestId:
+          type: string
+        topic:
+          enum:
+          - USER_PNL
+          type: string
+        type:
+          enum:
+          - subscribe
+          type: string
+      required:
+      - type
+      - topic
+      - params
+      title: WsSubscribeUserPnlCommand
       type: object
     WsSubscribeUserProfileCommand:
       additionalProperties: false
@@ -24996,48 +26222,10 @@ components:
       - wallets
       - balanceUpdate
       type: object
-    WsBroadcastUserDepositEvent:
-      description: Broadcast frame for `USER_DEPOSIT` events on the v2 WebSocket.
-      properties:
-        data:
-          $ref: '#/components/schemas/WsUserTransfer'
-        event:
-          description: Wire event name for this broadcast frame.
-          enum:
-          - USER_DEPOSIT
-          type: string
-        topic:
-          description: Authenticated user topic emitted as `user:{userId}`.
-          pattern: ^user:[0-9a-fA-F-]{36}$
-          type: string
-      required:
-      - topic
-      - event
-      - data
-      title: WsBroadcastUserDepositEvent
-      type: object
-    WsBroadcastUserWithdrawEvent:
-      description: Broadcast frame for `USER_WITHDRAW` events on the v2 WebSocket.
-      properties:
-        data:
-          $ref: '#/components/schemas/WsUserTransfer'
-        event:
-          description: Wire event name for this broadcast frame.
-          enum:
-          - USER_WITHDRAW
-          type: string
-        topic:
-          description: Authenticated user topic emitted as `user:{userId}`.
-          pattern: ^user:[0-9a-fA-F-]{36}$
-          type: string
-      required:
-      - topic
-      - event
-      - data
-      title: WsBroadcastUserWithdrawEvent
-      type: object
     WsUserTransfer:
-      description: Confirmed deposit or withdraw transfer data. No nested event field.
+      description: |-
+        Confirmed-only `USER_DEPOSIT` / `USER_WITHDRAW` data on `user:{userId}`.
+        Webhook `TransferPayload` minus nested `event` and `apiVersion`.
       properties:
         blockNumber:
           format: int64
@@ -25081,23 +26269,6 @@ components:
       - tokenRawAmount
       - usdValue
       type: object
-    TransferAddressDetails:
-      properties:
-        address:
-          type: string
-        entityType:
-          $ref: '#/components/schemas/TransferEntityType'
-        ownerAddress:
-          type: string
-      required:
-      - address
-      - entityType
-      type: object
-    TransferEntityType:
-      enum:
-      - slot
-      - external
-      type: string
 x-drakula-operation-links:
 - operationId: auth_challenge
   method: POST
@@ -27586,7 +28757,7 @@ x-drakula-operation-links:
   - BOTS_TRADES
   - BOTS_LOGS
   - BOTS_BALANCE_CHANGES
-  description: After subscribing with authentication, the server streams full-state updates for the bot list, aggregate statistics, watchlist source catalogs, user balance, active and completed trades, logs, and balance changes. Where defined, subscription parameters come from the HTTP request body. The authenticated user subscription for balance updates is created automatically. Updates continue until you unsubscribe or close the connection; use the subscription acknowledgement's `subId` to unsubscribe. Messages use the event types `BOTS`, `BOTS_STATS`, `WATCHLIST_SOURCES`, `USER_BALANCE`, `BOTS_TRADES`, `BOTS_LOGS`, and `BOTS_BALANCE_CHANGES`.
+  description: After subscribing with authentication, the server streams full-state updates for the bot list, aggregate statistics, watchlist source catalogs, user balance, active and completed trades, logs, and balance changes. Where defined, subscription parameters come from the HTTP request body. The authenticated user subscription for balance updates is created automatically. Updates continue until you unsubscribe or close the connection; use the subscription acknowledgement's `subId` to unsubscribe. Messages use the event types `BOTS`, `BOTS_STATS`, `WATCHLIST_SOURCES`, `USER_BALANCE`, `USER_DEPOSIT`, `USER_WITHDRAW`, `BOTS_TRADES`, `BOTS_LOGS`, and `BOTS_BALANCE_CHANGES`.
   live:
     mode: stream
     lifetime: until_unsubscribe_or_close
@@ -29014,7 +30185,7 @@ x-drakula-operation-links:
   - USER_WITHDRAW
   - TRADE_PRESETS
   - USER_SETTINGS
-  description: Authenticated live updates are available after subscribing to the related topics. The user topic can emit `USER_TRADE_UPDATE`, `USER_TRADE_UPDATE_ERROR`, `USER_BALANCE`, `TRADE_PRESETS`, and `USER_SETTINGS`; the active and completed trade topics emit `USER_TRADES` windows. Trade-window subscriptions accept optional `startCursor` and `endCursor` values, but `startCursor` requires `endCursor`. Keep the `subId` from the `subscribed` acknowledgement to unsubscribe, or close the WebSocket to stop updates. Authentication is required.
+  description: Authenticated live updates are available after subscribing to the related topics. The user topic can emit `USER_TRADE_UPDATE`, `USER_TRADE_UPDATE_ERROR`, `USER_BALANCE`, `USER_DEPOSIT`, `USER_WITHDRAW`, `TRADE_PRESETS`, and `USER_SETTINGS`; the active and completed trade topics emit `USER_TRADES` windows. Trade-window subscriptions accept optional `startCursor` and `endCursor` values, but `startCursor` requires `endCursor`. Keep the `subId` from the `subscribed` acknowledgement to unsubscribe, or close the WebSocket to stop updates. Authentication is required.
   live:
     mode: stream
     lifetime: until_unsubscribe_or_close
@@ -30013,7 +31184,7 @@ x-drakula-operation-links:
   - USER_BALANCE
   - USER_DEPOSIT
   - USER_WITHDRAW
-  description: 'After connecting, authenticate with `{ "type": "auth", "token": "<jwt>" }`. Successful authentication automatically subscribes you to `user:{userId}` and returns a `subId`; read updated wallet data from the `data` field of `USER_BALANCE` broadcasts. Updates continue until you unsubscribe with that `subId` or close the connection. Withdraw destinations and fee rates have no direct events.'
+  description: 'After connecting, authenticate with `{ "type": "auth", "token": "<jwt>" }`. Successful authentication automatically subscribes you to `user:{userId}` and returns a `subId`; read updated wallet data from the `data` field of `USER_BALANCE` broadcasts, and confirmed deposit or withdraw data from `USER_DEPOSIT` and `USER_WITHDRAW`. Updates continue until you unsubscribe with that `subId` or close the connection. Withdraw destinations and fee rates have no direct events.'
   live:
     mode: stream
     lifetime: until_unsubscribe_or_close
@@ -30036,7 +31207,7 @@ x-drakula-operation-links:
           token: <jwt>
           type: auth
     yield:
-      mode: data
+      mode: event
       messages:
       - eventType: USER_BALANCE
         event: USER_BALANCE
@@ -30166,7 +31337,7 @@ x-drakula-operation-links:
   - USER_BALANCE
   - USER_DEPOSIT
   - USER_WITHDRAW
-  description: After a successful signed login, authenticate the WebSocket with the returned JWT. Authentication automatically subscribes the connection to `user:{userId}`, where balance updates are sent as `USER_BALANCE` events with the updated balance payload in `data`. The subscription remains active until you unsubscribe or close the connection.
+  description: After a successful signed login, authenticate the WebSocket with the returned JWT. Authentication automatically subscribes the connection to `user:{userId}`, where balance updates are sent as `USER_BALANCE` events and confirmed transfers as `USER_DEPOSIT` and `USER_WITHDRAW`. The subscription remains active until you unsubscribe or close the connection.
   live:
     mode: stream
     lifetime: until_unsubscribe_or_close
@@ -30189,7 +31360,7 @@ x-drakula-operation-links:
           token: <jwt>
           type: auth
     yield:
-      mode: data
+      mode: event
       messages:
       - eventType: USER_BALANCE
         event: USER_BALANCE
@@ -31423,6 +32594,65 @@ x-drakula-operation-links:
   topics: []
   messages: []
   reason: Lookup endpoint has no stream.
+- operationId: stats
+  method: GET
+  path: /v2/scanner/stats
+  kind: related
+  topics:
+  - scanner_stats
+  messages:
+  - SCANNER_OVERVIEW
+  live:
+    mode: stream
+    lifetime: until_unsubscribe_or_close
+    subscribe:
+      topics:
+      - id: scanner_stats
+        topicTemplate: scanner:stats
+    yield:
+      mode: data
+      messages:
+      - eventType: SCANNER_OVERVIEW
+        event: SCANNER_OVERVIEW
+        dataSchema:
+          $ref: '#/components/schemas/MarketOverviewResponse'
+        messageSchema:
+          description: WebSocket message carrying `SCANNER_OVERVIEW` event data.
+          properties:
+            data:
+              $ref: '#/components/schemas/MarketOverviewResponse'
+            event:
+              description: Event type. Always `SCANNER_OVERVIEW`.
+              enum:
+              - SCANNER_OVERVIEW
+              type: string
+            topic:
+              description: Scanner market-statistics snapshot topic.
+              enum:
+              - scanner:stats
+              type: string
+          required:
+          - topic
+          - event
+          - data
+          title: WsBroadcastScannerOverviewEvent
+          type: object
+        dataPath: $.data
+        topicPath: $.topic
+    rules:
+    - id: stats:scanner_stats:SCANNER_OVERVIEW
+      operationId: stats
+      method: GET
+      path: /v2/scanner/stats
+      topicId: scanner_stats
+      messageEventType: SCANNER_OVERVIEW
+      relationship:
+        kind: topic_message_pair
+        topicReceivesMessage: true
+        lifetime: until_unsubscribe_or_close
+        unsubscribe:
+          commandType: unsubscribe
+          subIdSource: subscribe_ack.subId
 - operationId: scanner_tokens
   method: POST
   path: /v2/scanner/tokens
@@ -40234,6 +41464,77 @@ x-drakula-operation-links:
   messages: []
   description: This endpoint returns an HTTP snapshot only; it does not open a WebSocket stream or send live updates. Make another HTTP request to refresh the following list.
   reason: Social following list has no stream.
+- operationId: user_get_pnl
+  method: GET
+  path: /v2/user/pnl
+  kind: related
+  topics:
+  - user_pnl
+  messages:
+  - USER_PNL
+  description: REST and USER_PNL return the same private full-state P&L data for the selected range.
+  live:
+    mode: stream
+    lifetime: until_unsubscribe_or_close
+    subscribe:
+      topics:
+      - id: user_pnl
+        topicTemplate: USER_PNL
+        authRequired: true
+        params:
+          schema:
+            $ref: '#/components/schemas/UserPnlParams'
+          from:
+            in: request
+          required: true
+          omitNullish: true
+    yield:
+      mode: data
+      messages:
+      - eventType: USER_PNL
+        event: USER_PNL
+        dataSchema:
+          $ref: '#/components/schemas/UserPnlResponse'
+        messageSchema:
+          description: WebSocket message carrying `USER_PNL` event data.
+          properties:
+            data:
+              $ref: '#/components/schemas/UserPnlResponse'
+            event:
+              description: Event type. Always `USER_PNL`.
+              enum:
+              - USER_PNL
+              type: string
+            meta:
+              $ref: '#/components/schemas/LivecursorWindowMeta'
+            topic:
+              description: Private live user P&L snapshot.
+              enum:
+              - USER_PNL
+              type: string
+          required:
+          - topic
+          - event
+          - data
+          - meta
+          title: WsBroadcastUserPnlEvent
+          type: object
+        dataPath: $.data
+        topicPath: $.topic
+    rules:
+    - id: user_get_pnl:user_pnl:USER_PNL
+      operationId: user_get_pnl
+      method: GET
+      path: /v2/user/pnl
+      topicId: user_pnl
+      messageEventType: USER_PNL
+      relationship:
+        kind: topic_message_pair
+        topicReceivesMessage: true
+        lifetime: until_unsubscribe_or_close
+        unsubscribe:
+          commandType: unsubscribe
+          subIdSource: subscribe_ack.subId
 - operationId: user_get_profile
   method: GET
   path: /v2/user/profile
@@ -40797,7 +42098,7 @@ x-drakula-operation-links:
   - USER_BALANCE
   - USER_DEPOSIT
   - USER_WITHDRAW
-  description: After authenticating the WebSocket connection, subscribe to the private `user:{userId}` topic to receive `USER_BALANCE` events containing updated wallet data in `data`. Use the subscription acknowledgement's `subId` to unsubscribe. The subscription remains active until you unsubscribe or close the connection.
+  description: After authenticating the WebSocket connection, subscribe to the private `user:{userId}` topic to receive `USER_BALANCE`, `USER_DEPOSIT`, and `USER_WITHDRAW` events containing updated wallet and transfer data in `data`. Use the subscription acknowledgement's `subId` to unsubscribe. The subscription remains active until you unsubscribe or close the connection.
   live:
     mode: stream
     lifetime: until_unsubscribe_or_close
@@ -40820,7 +42121,7 @@ x-drakula-operation-links:
           token: <jwt>
           type: auth
     yield:
-      mode: data
+      mode: event
       messages:
       - eventType: USER_BALANCE
         event: USER_BALANCE
@@ -46369,10 +47670,10 @@ x-drakula-operation-links:
 - operationId: get_thesis_sources
   method: GET
   path: /v2/watchlist/sources/theses
-  kind: missing
+  kind: none
   topics: []
   messages: []
-  reason: Missing x-websocket-v2 operation extension
+  reason: The thesis author catalog changes only when the wallet-label import runs.
 - operationId: get_wallet_sources
   method: GET
   path: /v2/watchlist/sources/wallets
@@ -46698,6 +47999,31 @@ x-websocket-v2:
       - event
       - data
       title: WsBroadcastPegPricesEvent
+      type: object
+  - dataSchema:
+      $ref: '#/components/schemas/MarketOverviewResponse'
+    event: SCANNER_OVERVIEW
+    eventType: SCANNER_OVERVIEW
+    messageSchema:
+      description: Broadcast frame for `SCANNER_OVERVIEW` events on the v2 WebSocket.
+      properties:
+        data:
+          $ref: '#/components/schemas/MarketOverviewResponse'
+        event:
+          description: Wire event name for this broadcast frame.
+          enum:
+          - SCANNER_OVERVIEW
+          type: string
+        topic:
+          description: Scanner market-statistics snapshot topic.
+          enum:
+          - scanner:stats
+          type: string
+      required:
+      - topic
+      - event
+      - data
+      title: WsBroadcastScannerOverviewEvent
       type: object
   - dataSchema:
       $ref: '#/components/schemas/FeeEstimate'
@@ -47245,6 +48571,36 @@ x-websocket-v2:
       - data
       - meta
       title: WsBroadcastTraderOverviewEvent
+      type: object
+    metaSchema:
+      $ref: '#/components/schemas/LivecursorWindowMeta'
+  - dataSchema:
+      $ref: '#/components/schemas/UserPnlResponse'
+    event: USER_PNL
+    eventType: USER_PNL
+    messageSchema:
+      description: Broadcast frame for `USER_PNL` events on the v2 WebSocket.
+      properties:
+        data:
+          $ref: '#/components/schemas/UserPnlResponse'
+        event:
+          description: Wire event name for this broadcast frame.
+          enum:
+          - USER_PNL
+          type: string
+        meta:
+          $ref: '#/components/schemas/LivecursorWindowMeta'
+        topic:
+          description: Private live user P&L snapshot.
+          enum:
+          - USER_PNL
+          type: string
+      required:
+      - topic
+      - event
+      - data
+      - meta
+      title: WsBroadcastUserPnlEvent
       type: object
     metaSchema:
       $ref: '#/components/schemas/LivecursorWindowMeta'
@@ -50611,6 +51967,54 @@ x-websocket-v2:
       title: WsBroadcastUserBalanceEvent
       type: object
   - dataSchema:
+      $ref: '#/components/schemas/WsUserTransfer'
+    event: USER_DEPOSIT
+    eventType: USER_DEPOSIT
+    messageSchema:
+      description: Broadcast frame for `USER_DEPOSIT` events on the v2 WebSocket.
+      properties:
+        data:
+          $ref: '#/components/schemas/WsUserTransfer'
+        event:
+          description: Wire event name for this broadcast frame.
+          enum:
+          - USER_DEPOSIT
+          type: string
+        topic:
+          description: Authenticated user topic emitted as `user:{userId}`.
+          pattern: ^user:[0-9a-fA-F-]{36}$
+          type: string
+      required:
+      - topic
+      - event
+      - data
+      title: WsBroadcastUserDepositEvent
+      type: object
+  - dataSchema:
+      $ref: '#/components/schemas/WsUserTransfer'
+    event: USER_WITHDRAW
+    eventType: USER_WITHDRAW
+    messageSchema:
+      description: Broadcast frame for `USER_WITHDRAW` events on the v2 WebSocket.
+      properties:
+        data:
+          $ref: '#/components/schemas/WsUserTransfer'
+        event:
+          description: Wire event name for this broadcast frame.
+          enum:
+          - USER_WITHDRAW
+          type: string
+        topic:
+          description: Authenticated user topic emitted as `user:{userId}`.
+          pattern: ^user:[0-9a-fA-F-]{36}$
+          type: string
+      required:
+      - topic
+      - event
+      - data
+      title: WsBroadcastUserWithdrawEvent
+      type: object
+  - dataSchema:
       $ref: '#/components/schemas/UserTradesLivecursorResponse'
     event: USER_TRADES
     eventType: USER_TRADES
@@ -53541,7 +54945,7 @@ x-websocket-v2:
     path: /v2/marketplace/lists/{listId}/publication
     reason: Publication changes return HTTP state; refresh marketplace queries after the mutation.
     topics: []
-  - description: After subscribing with authentication, the server streams full-state updates for the bot list, aggregate statistics, watchlist source catalogs, user balance, active and completed trades, logs, and balance changes. Where defined, subscription parameters come from the HTTP request body. The authenticated user subscription for balance updates is created automatically. Updates continue until you unsubscribe or close the connection; use the subscription acknowledgement's `subId` to unsubscribe. Messages use the event types `BOTS`, `BOTS_STATS`, `WATCHLIST_SOURCES`, `USER_BALANCE`, `BOTS_TRADES`, `BOTS_LOGS`, and `BOTS_BALANCE_CHANGES`.
+  - description: After subscribing with authentication, the server streams full-state updates for the bot list, aggregate statistics, watchlist source catalogs, user balance, active and completed trades, logs, and balance changes. Where defined, subscription parameters come from the HTTP request body. The authenticated user subscription for balance updates is created automatically. Updates continue until you unsubscribe or close the connection; use the subscription acknowledgement's `subId` to unsubscribe. Messages use the event types `BOTS`, `BOTS_STATS`, `WATCHLIST_SOURCES`, `USER_BALANCE`, `USER_DEPOSIT`, `USER_WITHDRAW`, `BOTS_TRADES`, `BOTS_LOGS`, and `BOTS_BALANCE_CHANGES`.
     kind: related
     live:
       lifetime: until_unsubscribe_or_close
@@ -53972,7 +55376,6 @@ x-websocket-v2:
             type: object
           topicPath: $.topic
         - dataPath: $.data
-        - dataPath: $.data
           dataSchema:
             $ref: '#/components/schemas/WsUserTransfer'
           event: USER_DEPOSIT
@@ -53998,7 +55401,6 @@ x-websocket-v2:
             title: WsBroadcastUserDepositEvent
             type: object
           topicPath: $.topic
-        - dataPath: $.data
         - dataPath: $.data
           dataSchema:
             $ref: '#/components/schemas/WsUserTransfer'
@@ -54979,7 +56381,7 @@ x-websocket-v2:
     path: /v2/pages/terminal/{chain}/{address}
     topics:
     - page_terminal
-  - description: Authenticated live updates are available after subscribing to the related topics. The user topic can emit `USER_TRADE_UPDATE`, `USER_TRADE_UPDATE_ERROR`, `USER_BALANCE`, `TRADE_PRESETS`, and `USER_SETTINGS`; the active and completed trade topics emit `USER_TRADES` windows. Trade-window subscriptions accept optional `startCursor` and `endCursor` values, but `startCursor` requires `endCursor`. Keep the `subId` from the `subscribed` acknowledgement to unsubscribe, or close the WebSocket to stop updates. Authentication is required.
+  - description: Authenticated live updates are available after subscribing to the related topics. The user topic can emit `USER_TRADE_UPDATE`, `USER_TRADE_UPDATE_ERROR`, `USER_BALANCE`, `USER_DEPOSIT`, `USER_WITHDRAW`, `TRADE_PRESETS`, and `USER_SETTINGS`; the active and completed trade topics emit `USER_TRADES` windows. Trade-window subscriptions accept optional `startCursor` and `endCursor` values, but `startCursor` requires `endCursor`. Keep the `subId` from the `subscribed` acknowledgement to unsubscribe, or close the WebSocket to stop updates. Authentication is required.
     kind: related
     live:
       lifetime: until_unsubscribe_or_close
@@ -55354,7 +56756,6 @@ x-websocket-v2:
             type: object
           topicPath: $.topic
         - dataPath: $.data
-        - dataPath: $.data
           dataSchema:
             $ref: '#/components/schemas/WsUserTransfer'
           event: USER_DEPOSIT
@@ -55380,7 +56781,6 @@ x-websocket-v2:
             title: WsBroadcastUserDepositEvent
             type: object
           topicPath: $.topic
-        - dataPath: $.data
         - dataPath: $.data
           dataSchema:
             $ref: '#/components/schemas/WsUserTransfer'
@@ -55774,7 +57174,6 @@ x-websocket-v2:
             type: object
           topicPath: $.topic
         - dataPath: $.data
-        - dataPath: $.data
           dataSchema:
             $ref: '#/components/schemas/WsUserTransfer'
           event: USER_DEPOSIT
@@ -55800,7 +57199,6 @@ x-websocket-v2:
             title: WsBroadcastUserDepositEvent
             type: object
           topicPath: $.topic
-        - dataPath: $.data
         - dataPath: $.data
           dataSchema:
             $ref: '#/components/schemas/WsUserTransfer'
@@ -55991,7 +57389,7 @@ x-websocket-v2:
     - user_settings
     - referral_code
     - referral_commissions_summary
-  - description: 'After connecting, authenticate with `{ "type": "auth", "token": "<jwt>" }`. Successful authentication automatically subscribes you to `user:{userId}` and returns a `subId`; read updated wallet data from the `data` field of `USER_BALANCE` broadcasts. Updates continue until you unsubscribe with that `subId` or close the connection. Withdraw destinations and fee rates have no direct events.'
+  - description: 'After connecting, authenticate with `{ "type": "auth", "token": "<jwt>" }`. Successful authentication automatically subscribes you to `user:{userId}` and returns a `subId`; read updated wallet data from the `data` field of `USER_BALANCE` broadcasts, and confirmed deposit or withdraw data from `USER_DEPOSIT` and `USER_WITHDRAW`. Updates continue until you unsubscribe with that `subId` or close the connection. Withdraw destinations and fee rates have no direct events.'
     kind: related
     live:
       lifetime: until_unsubscribe_or_close
@@ -55999,6 +57397,32 @@ x-websocket-v2:
       rules:
       - id: pages_wallet:user:USER_BALANCE
         messageEventType: USER_BALANCE
+        method: GET
+        operationId: pages_wallet
+        path: /v2/pages/wallet
+        relationship:
+          kind: topic_message_pair
+          lifetime: until_unsubscribe_or_close
+          topicReceivesMessage: true
+          unsubscribe:
+            commandType: unsubscribe
+            subIdSource: subscribe_ack.subId
+        topicId: user
+      - id: pages_wallet:user:USER_DEPOSIT
+        messageEventType: USER_DEPOSIT
+        method: GET
+        operationId: pages_wallet
+        path: /v2/pages/wallet
+        relationship:
+          kind: topic_message_pair
+          lifetime: until_unsubscribe_or_close
+          topicReceivesMessage: true
+          unsubscribe:
+            commandType: unsubscribe
+            subIdSource: subscribe_ack.subId
+        topicId: user
+      - id: pages_wallet:user:USER_WITHDRAW
+        messageEventType: USER_WITHDRAW
         method: GET
         operationId: pages_wallet
         path: /v2/pages/wallet
@@ -56108,7 +57532,7 @@ x-websocket-v2:
             title: WsBroadcastUserWithdrawEvent
             type: object
           topicPath: $.topic
-        mode: data
+        mode: event
     messages:
     - USER_BALANCE
     - USER_DEPOSIT
@@ -56118,7 +57542,7 @@ x-websocket-v2:
     path: /v2/pages/wallet
     topics:
     - user
-  - description: After a successful signed login, authenticate the WebSocket with the returned JWT. Authentication automatically subscribes the connection to `user:{userId}`, where balance updates are sent as `USER_BALANCE` events with the updated balance payload in `data`. The subscription remains active until you unsubscribe or close the connection.
+  - description: After a successful signed login, authenticate the WebSocket with the returned JWT. Authentication automatically subscribes the connection to `user:{userId}`, where balance updates are sent as `USER_BALANCE` events and confirmed transfers as `USER_DEPOSIT` and `USER_WITHDRAW`. The subscription remains active until you unsubscribe or close the connection.
     kind: related
     live:
       lifetime: until_unsubscribe_or_close
@@ -56126,6 +57550,32 @@ x-websocket-v2:
       rules:
       - id: pages_wallet_connect:user:USER_BALANCE
         messageEventType: USER_BALANCE
+        method: POST
+        operationId: pages_wallet_connect
+        path: /v2/pages/wallet
+        relationship:
+          kind: topic_message_pair
+          lifetime: until_unsubscribe_or_close
+          topicReceivesMessage: true
+          unsubscribe:
+            commandType: unsubscribe
+            subIdSource: subscribe_ack.subId
+        topicId: user
+      - id: pages_wallet_connect:user:USER_DEPOSIT
+        messageEventType: USER_DEPOSIT
+        method: POST
+        operationId: pages_wallet_connect
+        path: /v2/pages/wallet
+        relationship:
+          kind: topic_message_pair
+          lifetime: until_unsubscribe_or_close
+          topicReceivesMessage: true
+          unsubscribe:
+            commandType: unsubscribe
+            subIdSource: subscribe_ack.subId
+        topicId: user
+      - id: pages_wallet_connect:user:USER_WITHDRAW
+        messageEventType: USER_WITHDRAW
         method: POST
         operationId: pages_wallet_connect
         path: /v2/pages/wallet
@@ -56235,7 +57685,7 @@ x-websocket-v2:
             title: WsBroadcastUserWithdrawEvent
             type: object
           topicPath: $.topic
-        mode: data
+        mode: event
     messages:
     - USER_BALANCE
     - USER_DEPOSIT
@@ -57359,6 +58809,65 @@ x-websocket-v2:
     path: /v2/referral/withdrawals/{idempotencyKey}
     reason: Lookup endpoint has no stream.
     topics: []
+  - kind: related
+    live:
+      lifetime: until_unsubscribe_or_close
+      mode: stream
+      rules:
+      - id: stats:scanner_stats:SCANNER_OVERVIEW
+        messageEventType: SCANNER_OVERVIEW
+        method: GET
+        operationId: stats
+        path: /v2/scanner/stats
+        relationship:
+          kind: topic_message_pair
+          lifetime: until_unsubscribe_or_close
+          topicReceivesMessage: true
+          unsubscribe:
+            commandType: unsubscribe
+            subIdSource: subscribe_ack.subId
+        topicId: scanner_stats
+      subscribe:
+        topics:
+        - id: scanner_stats
+          topicTemplate: scanner:stats
+      yield:
+        messages:
+        - dataPath: $.data
+          dataSchema:
+            $ref: '#/components/schemas/MarketOverviewResponse'
+          event: SCANNER_OVERVIEW
+          eventType: SCANNER_OVERVIEW
+          messageSchema:
+            description: WebSocket message carrying `SCANNER_OVERVIEW` event data.
+            properties:
+              data:
+                $ref: '#/components/schemas/MarketOverviewResponse'
+              event:
+                description: Event type. Always `SCANNER_OVERVIEW`.
+                enum:
+                - SCANNER_OVERVIEW
+                type: string
+              topic:
+                description: Scanner market-statistics snapshot topic.
+                enum:
+                - scanner:stats
+                type: string
+            required:
+            - topic
+            - event
+            - data
+            title: WsBroadcastScannerOverviewEvent
+            type: object
+          topicPath: $.topic
+        mode: data
+    messages:
+    - SCANNER_OVERVIEW
+    method: GET
+    operationId: stats
+    path: /v2/scanner/stats
+    topics:
+    - scanner_stats
   - description: Subscribe to the `scanner:tokens` topic with optional scanner filters to receive `SCANNER_TOKENS` snapshots and `SCANNER_UPDATE` token-list updates. Frames use the subscribed topic and place the payload in `data`; use `meta.windowId` to distinguish concurrent subscriptions. The stream continues until you unsubscribe with the acknowledgement `subId` or close the WebSocket.
     kind: related
     live:
@@ -66170,6 +67679,77 @@ x-websocket-v2:
     path: /v2/user/following
     reason: Social following list has no stream.
     topics: []
+  - description: REST and USER_PNL return the same private full-state P&L data for the selected range.
+    kind: related
+    live:
+      lifetime: until_unsubscribe_or_close
+      mode: stream
+      rules:
+      - id: user_get_pnl:user_pnl:USER_PNL
+        messageEventType: USER_PNL
+        method: GET
+        operationId: user_get_pnl
+        path: /v2/user/pnl
+        relationship:
+          kind: topic_message_pair
+          lifetime: until_unsubscribe_or_close
+          topicReceivesMessage: true
+          unsubscribe:
+            commandType: unsubscribe
+            subIdSource: subscribe_ack.subId
+        topicId: user_pnl
+      subscribe:
+        topics:
+        - authRequired: true
+          id: user_pnl
+          params:
+            from:
+              in: request
+            omitNullish: true
+            required: true
+            schema:
+              $ref: '#/components/schemas/UserPnlParams'
+          topicTemplate: USER_PNL
+      yield:
+        messages:
+        - dataPath: $.data
+          dataSchema:
+            $ref: '#/components/schemas/UserPnlResponse'
+          event: USER_PNL
+          eventType: USER_PNL
+          messageSchema:
+            description: WebSocket message carrying `USER_PNL` event data.
+            properties:
+              data:
+                $ref: '#/components/schemas/UserPnlResponse'
+              event:
+                description: Event type. Always `USER_PNL`.
+                enum:
+                - USER_PNL
+                type: string
+              meta:
+                $ref: '#/components/schemas/LivecursorWindowMeta'
+              topic:
+                description: Private live user P&L snapshot.
+                enum:
+                - USER_PNL
+                type: string
+            required:
+            - topic
+            - event
+            - data
+            - meta
+            title: WsBroadcastUserPnlEvent
+            type: object
+          topicPath: $.topic
+        mode: data
+    messages:
+    - USER_PNL
+    method: GET
+    operationId: user_get_pnl
+    path: /v2/user/pnl
+    topics:
+    - user_pnl
   - description: Authenticated WebSocket subscriptions provide live updates related to this profile. Subscribe to `user:profile` for `USER_PROFILE` events with a `ProfileResponse` in `data`, or to `trades:completed` for `USER_TRADES` events with live completed-trade data. The `trades:completed` subscription accepts optional `from` cursor-window parameters. Each subscription remains active until you unsubscribe using the subscription acknowledgement's `subId` or the WebSocket connection closes.
     kind: related
     live:
@@ -66723,7 +68303,7 @@ x-websocket-v2:
     path: /v2/user/username
     topics:
     - user_profile
-  - description: After authenticating the WebSocket connection, subscribe to the private `user:{userId}` topic to receive `USER_BALANCE` events containing updated wallet data in `data`. Use the subscription acknowledgement's `subId` to unsubscribe. The subscription remains active until you unsubscribe or close the connection.
+  - description: After authenticating the WebSocket connection, subscribe to the private `user:{userId}` topic to receive `USER_BALANCE`, `USER_DEPOSIT`, and `USER_WITHDRAW` events containing updated wallet and transfer data in `data`. Use the subscription acknowledgement's `subId` to unsubscribe. The subscription remains active until you unsubscribe or close the connection.
     kind: related
     live:
       lifetime: until_unsubscribe_or_close
@@ -66731,6 +68311,32 @@ x-websocket-v2:
       rules:
       - id: user_get_wallets:user:USER_BALANCE
         messageEventType: USER_BALANCE
+        method: GET
+        operationId: user_get_wallets
+        path: /v2/user/wallets
+        relationship:
+          kind: topic_message_pair
+          lifetime: until_unsubscribe_or_close
+          topicReceivesMessage: true
+          unsubscribe:
+            commandType: unsubscribe
+            subIdSource: subscribe_ack.subId
+        topicId: user
+      - id: user_get_wallets:user:USER_DEPOSIT
+        messageEventType: USER_DEPOSIT
+        method: GET
+        operationId: user_get_wallets
+        path: /v2/user/wallets
+        relationship:
+          kind: topic_message_pair
+          lifetime: until_unsubscribe_or_close
+          topicReceivesMessage: true
+          unsubscribe:
+            commandType: unsubscribe
+            subIdSource: subscribe_ack.subId
+        topicId: user
+      - id: user_get_wallets:user:USER_WITHDRAW
+        messageEventType: USER_WITHDRAW
         method: GET
         operationId: user_get_wallets
         path: /v2/user/wallets
@@ -66840,7 +68446,7 @@ x-websocket-v2:
             title: WsBroadcastUserWithdrawEvent
             type: object
           topicPath: $.topic
-        mode: data
+        mode: event
     messages:
     - USER_BALANCE
     - USER_DEPOSIT
@@ -72276,12 +73882,12 @@ x-websocket-v2:
     path: /v2/watchlist/sources/tg
     topics:
     - watchlist_sources_tg
-  - kind: missing
+  - kind: none
     messages: []
     method: GET
     operationId: get_thesis_sources
     path: /v2/watchlist/sources/theses
-    reason: Missing x-websocket-v2 operation extension
+    reason: The thesis author catalog changes only when the wallet-label import runs.
     topics: []
   - description: Authenticated live stream for wallet-source catalog snapshots. Subscribe to `watchlist:sources:wallets`; optionally provide `from` with `startCursor`, `endCursor`, or `search`. Messages use event `WATCHLIST_SOURCES` and contain the catalog in `data` plus live-window metadata in `meta`. Keep the subscription active until you unsubscribe or close the connection, and use the subscription acknowledgement's `subId` to unsubscribe.
     kind: related
@@ -72547,6 +74153,23 @@ x-websocket-v2:
       subIdPath: $.subId
       successType: unsubscribed
   topics:
+  - authRequired: true
+    expandsTo: []
+    id: user_pnl
+    paramsAllowed: true
+    paramsRequired: true
+    paramsSchema:
+      $ref: '#/components/schemas/UserPnlParams'
+    pattern: USER_PNL
+    receives:
+    - USER_PNL
+    subscribeExample:
+      params:
+        range: 24h
+      topic: USER_PNL
+      type: subscribe
+    topicParams: []
+    topicTemplate: USER_PNL
   - authRequired: false
     expandsTo: []
     id: page_terminal
@@ -73596,6 +75219,20 @@ x-websocket-v2:
       type: subscribe
     topicParams: []
     topicTemplate: peg-prices
+  - authRequired: false
+    expandsTo: []
+    id: scanner_stats
+    paramsAllowed: false
+    paramsRequired: false
+    paramsSchema: null
+    pattern: scanner:stats
+    receives:
+    - SCANNER_OVERVIEW
+    subscribeExample:
+      topic: scanner:stats
+      type: subscribe
+    topicParams: []
+    topicTemplate: scanner:stats
   - authRequired: false
     expandsTo: []
     id: fee_estimate
